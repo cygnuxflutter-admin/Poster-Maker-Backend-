@@ -1,0 +1,13 @@
+<!--
+jQuery init: 
+$("#slider_1").slider({
+    value: 60, 
+    orientation: "horizontal", 
+    animate: true,
+    slide: function( event, ui ) {
+        $( "#slider_1_amount" ).html( "$" + ui.value );
+    }
+});
+-->
+<span class="top" id="slider_1_amount">$60</span><!-- value container, #slider_1_amount: unique container for #slider_1 -->
+<div id="slider_1"></div><!-- #slider_1: unique id of slider -->

@@ -1,0 +1,11 @@
+<table width="100%" class="table fTable"><!-- set .lcnp to remove padding from last column-->
+    ...
+</table>
+<!-- 
+jQuery init:
+        if($(".fTable").length > 0)
+            $(".fTable").dataTable({bSort: true, 
+                                    "iDisplayLength": 5, "aLengthMenu": [5,10,25,50,100], // can be removed for basic 10 items per page
+                                    "aoColumnDefs": [{"bSortable": false,
+                                                     "aTargets": [ -1 , 0]}]});
+-->

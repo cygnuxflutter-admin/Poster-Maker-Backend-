@@ -1,0 +1,28 @@
+<!-- Wizard validation
+jQuery init:
+if($("#wizard_validate").length > 0){
+
+    $("#wizard_validate").validationEngine('attach',{promptPosition : "topLeft"}); // init validationEngine for this form
+
+    $('#wizard_validate').stepy({ // init stype for this form
+        back: function(index) {                                                    
+            //uncomment line below if you need to validate on back step
+            //if(!$("#wizard_validate").validationEngine('validate')) return false;
+        }, 
+        next: function(index) {                            
+            if(!$("#wizard_validate").validationEngine('validate')) return false;                
+        }, 
+        finish: function(index) {                
+            if(!$("#wizard_validate").validationEngine('validate')) return false;
+        }            
+    });
+}
+-->
+<form action="..." method="..." id="wizard_validate"><!-- should be wrapped in form and have unique id -->
+        <fieldset title="..."><!-- Step and title for it -->
+                <legend>...</legend><!-- Subtitle for it -->
+                ...<!-- content -->
+        </fieldset>
+        ...
+        <input type="submit" class="btn finish" value="Submit" /><!-- submit button -->
+</form>

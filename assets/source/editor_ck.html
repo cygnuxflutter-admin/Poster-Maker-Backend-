@@ -1,0 +1,18 @@
+<!-- Textarea editor -->
+<textarea id="ckeditor" style="height: 300px;"></textarea><!-- important! dont forget to set height -->
+<!-- 
+init:
+    <script>
+        var ckeditor = CKEDITOR.replace('ckeditor');
+    </script>
+-->
+
+<!-- Inline editor -->
+<div id="editable" class="typography" contenteditable="true">...</div><!-- important! dont forget to set contenteditable="true" -->
+<!--
+init:
+    <script>
+        CKEDITOR.disableAutoInline = true;
+        CKEDITOR.inline('editable');
+    </script>
+-->
