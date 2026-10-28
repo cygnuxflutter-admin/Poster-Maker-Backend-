@@ -76,6 +76,9 @@
             <li class="active">
                 <a href="<?php echo base_url(); ?>MakeItYours/posters" class="blgreen">🎨 MIY Posters</a>
             </li>
+            <li class="active">
+                <a href="<?php echo base_url(); ?>PushNotification" class="blpurple">🔔 Push Notifications</a>
+            </li>
     </ul>
 </div>
 </div>

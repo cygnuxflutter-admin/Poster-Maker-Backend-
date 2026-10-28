@@ -16,6 +16,15 @@ upload/*
 *.zip
 error_log
 error_log.txt
+*.log
+
+# Push System Secrets & Config
+application/config/secrets/*.json
+!application/config/secrets/README.md
+.env
+tools/generator/.env
+tools/generator/drafts_checkpoint.json
+*.lock
 
 composer.lock
 
