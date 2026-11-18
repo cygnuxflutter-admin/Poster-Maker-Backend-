@@ -14,13 +14,11 @@
 </script>
 <div class="container">
     <div class="page-header">
-        <div class="wrap-title">
-
-            <h1>Update Poster</h1>
+        <div class="wrap-title"><div class="icon"><i class="fa-solid fa-pen-to-square"></i></div><h1>Update Poster <small><span class="cgreen"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> Template Builder</span></small></h1>
         </div>
         <ul class="breadcrumb">
             <li>
-                <a href="index">Home</a>
+                <a href="<?php echo base_url(); ?>site">Home</a>
             </li>
             <li class="active">Update Poster</li>
         </ul>

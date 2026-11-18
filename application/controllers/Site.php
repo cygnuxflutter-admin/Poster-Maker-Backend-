@@ -10,6 +10,15 @@ class Site extends CI_Controller
 		date_default_timezone_set('Asia/Kolkata');
 	}
 
+	public function index()
+	{
+		if ($this->session->userdata('poster_sess_user_name')) {
+			redirect('admin/showAdmin');
+		} else {
+			redirect('admin');
+		}
+	}
+
 	/*public function showaddposterform(){
 		$this->load->view('header');
 		$this->load->view('sidebar');

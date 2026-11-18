@@ -14,14 +14,12 @@
   <div class="page-header">
     <div class="wrap-title">
       <div class="icon">
-        <span class="ico-layout-7"></span>
+        <i class="fa-solid fa-download"></i>
     </div>
     <h1>Download <small><?php echo ucfirst($this->session->userdata('poster_sess_user_name'));?>: <span class="cgreen">Active Now </span><span class="cgreen ico-circle" style="font-size: 8px;"></span></small></h1>
 </div>
 <ul class="breadcrumb">
-  <li>
-    <a href="/">Home</a>
-</li>
+  <li><a href="<?php echo base_url(); ?>site">Home</a></li>
 <li class="active">Download</li>
 </ul>
 <div class="clear"></div>
@@ -30,7 +28,7 @@
 <div class="row">
     <div class="block">
       <div class="head blue">
-        <div class="icon"><span class="ico-layout-9"></span></div>
+        <div class="icon"><i class="fa-solid fa-download"></i></div>
         <h2>Download</h2>
       <!--   <ul class="buttons">
           <li><button onclick="location.href='<?=base_url().'site/showaddposterform'?>'" style="background: none;border: none;"><div class="icon"><span class="ico-add"></span></div><h2>&nbsp;Add Poster</h2></button></li>

@@ -24,6 +24,11 @@
         </div>
     <?php } ?>
 
+    <!-- App Workspace Selector Bar -->
+    <?php if (file_exists(APPPATH . 'views/push_notification/app_selector_bar.php')) {
+        $this->load->view('push_notification/app_selector_bar');
+    } ?>
+
     <!-- Navigation Tabs -->
     <div class="row" style="margin-bottom: 20px;">
         <div class="col-md-12">
@@ -32,6 +37,7 @@
                 <li><a href="<?php echo base_url('PushNotification/bank'); ?>">🗂 Content Bank (2,000)</a></li>
                 <li><a href="<?php echo base_url('PushNotification/composer'); ?>">✍️ Manual Push Composer</a></li>
                 <li><a href="<?php echo base_url('PushNotification/campaigns'); ?>">📢 Campaign History</a></li>
+                <li><a href="<?php echo base_url('PushNotification/import_json'); ?>">📥 Bulk JSON Import</a></li>
                 <li class="active"><a href="<?php echo base_url('PushNotification/test_send'); ?>">🚀 Send Test Push</a></li>
                 <li><a href="<?php echo base_url('PushNotification/logs'); ?>">📜 Delivery Logs</a></li>
                 <li><a href="<?php echo base_url('PushNotification/settings'); ?>">⚙️ Settings</a></li>
@@ -49,6 +55,21 @@
                 </div>
                 <div class="data-fluid" style="padding: 20px;">
                     <form action="<?php echo base_url('PushNotification/do_test_send'); ?>" method="POST" id="testPushForm">
+                        
+                        <!-- Target Application -->
+                        <div class="form-group" style="margin-bottom: 18px; background: #eef4f8; padding: 12px 16px; border-radius: 6px; border: 1px solid #b8d4e8;">
+                            <label style="font-size: 13.5px; color: #1e3c72; margin-bottom: 6px;">
+                                <strong><span class="ico-mobile"></span> Select Target Application:</strong> <span class="text-danger">*</span>
+                            </label>
+                            <select name="target_app" class="form-control" style="font-weight: 600; height: 38px;">
+                                <option value="chirag" <?php echo ($active_app === 'chirag') ? 'selected' : ''; ?>>
+                                    🔵 Chirag Sir App (firebase_service_account.json)
+                                </option>
+                                <option value="nitin" <?php echo ($active_app === 'nitin') ? 'selected' : ''; ?>>
+                                    🟢 Nitin Sir App (nitin_poster_service_account.json)
+                                </option>
+                            </select>
+                        </div>
                         
                         <div class="form-group" style="margin-bottom: 15px;">
                             <label><strong>Target Type:</strong></label>

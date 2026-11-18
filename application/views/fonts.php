@@ -46,14 +46,12 @@
     <div class="page-header">
       <div class="wrap-title">
         <div class="icon">
-          <span class="ico-layout-7"></span>
+          <i class="fa-solid fa-font"></i>
         </div>
         <h1>Fonts <small><?php echo ucfirst($this->session->userdata('invi_sess_user_name'));?>: <span class="cgreen">Active Now </span><span class="cgreen ico-circle" style="font-size: 8px;"></span></small></h1>
       </div>
       <ul class="breadcrumb">
-        <li>
-          <a href="/">Home</a>
-        </li>
+        <li><a href="<?php echo base_url(); ?>site">Home</a></li>
         <li class="active">Fonts</li>
       </ul>
       <div class="clear"></div>
@@ -69,11 +67,11 @@
     <div class="row">
       <div class="block">
         <div class="head blue">
-          <div class="icon"><span class="ico-layout-9"></span></div>
+          <div class="icon"><i class="fa-solid fa-font"></i></div>
           <h2>Fonts</h2>
           <ul class="buttons">
             <li>
-             <button style="background: none;border: none;" onclick=""><div class="icon"><span class="ico-download"></span></div><h4 style="display: inline">Download</h4></button>
+             <button class="btn btn-primary" onclick=""><i class="fa-solid fa-download"></i> Download</button>
            </li>
          </ul>                                                   
        </div> 

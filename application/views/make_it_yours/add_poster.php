@@ -5,12 +5,12 @@
     <div class="page-header">
         <div class="wrap-title">
             <div class="icon">
-                <span class="ico-images"></span>
+                <i class="fa-solid fa-paintbrush"></i>
             </div>
             <h1><?php echo isset($edit_poster) ? 'Edit' : 'Add'; ?> MIY Poster</h1>
         </div>
         <ul class="breadcrumb">
-            <li><a href="/">Home</a></li>
+            <li><a href="<?php echo base_url(); ?>site">Home</a></li>
             <li><a href="<?php echo base_url(); ?>MakeItYours/posters">MIY Posters</a></li>
             <li class="active"><?php echo isset($edit_poster) ? 'Edit' : 'Add'; ?> Poster</li>
         </ul>

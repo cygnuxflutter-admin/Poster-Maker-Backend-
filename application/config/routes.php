@@ -57,3 +57,13 @@ $route['translate_uri_dashes'] = FALSE;
 // Map lowercase API routes for Linux case sensitivity
 $route['api/v1/poster/(:any)'] = 'API/V1/Poster/$1';
 $route['api/v1/poster'] = 'API/V1/Poster';
+
+
+// RTO Device Token routes
+$route['api/v1/rtodevicetoken/(:any)'] = 'API/V1/RtoDeviceToken/$1';
+$route['api/v1/rtodevicetoken'] = 'API/V1/RtoDeviceToken';
+
+
+// Dashboard aliases for /site
+$route['site'] = 'admin/showAdmin';
+$route['site/index'] = 'admin/showAdmin';

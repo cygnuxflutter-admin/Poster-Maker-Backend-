@@ -24,6 +24,11 @@
         </div>
     <?php } ?>
 
+    <!-- App Workspace Selector Bar -->
+    <?php if (file_exists(APPPATH . 'views/push_notification/app_selector_bar.php')) {
+        $this->load->view('push_notification/app_selector_bar');
+    } ?>
+
     <!-- Navigation Tabs -->
     <div class="row" style="margin-bottom: 20px;">
         <div class="col-md-12">
@@ -32,6 +37,7 @@
                 <li><a href="<?php echo base_url('PushNotification/bank'); ?>">🗂 Content Bank (2,000)</a></li>
                 <li><a href="<?php echo base_url('PushNotification/composer'); ?>">✍️ Manual Push Composer</a></li>
                 <li class="active"><a href="<?php echo base_url('PushNotification/campaigns'); ?>">📢 Campaign History</a></li>
+                <li><a href="<?php echo base_url('PushNotification/import_json'); ?>">📥 Bulk JSON Import</a></li>
                 <li><a href="<?php echo base_url('PushNotification/test_send'); ?>">🚀 Send Test Push</a></li>
                 <li><a href="<?php echo base_url('PushNotification/logs'); ?>">📜 Delivery Logs</a></li>
                 <li><a href="<?php echo base_url('PushNotification/settings'); ?>">⚙️ Settings</a></li>
@@ -60,12 +66,31 @@
             <div class="block">
                 <div class="head blue">
                     <div class="icon"><span class="ico-list"></span></div>
-                    <h2>Campaign Dispatches (Total: <?php echo number_format($total); ?>)</h2>
+                    <h2>
+                        Campaign Dispatches - 
+                        <span class="label <?php echo ($active_app === 'nitin') ? 'label-warning' : 'label-info'; ?>" style="font-size: 12.5px; padding: 3px 8px; vertical-align: middle;">
+                            <?php echo ($active_app === 'nitin') ? 'Nitin Sir App' : 'Chirag Sir App'; ?>
+                        </span>
+                        (Total: <?php echo number_format($total); ?>)
+                    </h2>
                     <ul class="buttons">
+                        <li><a href="<?php echo base_url('PushNotification/import_json'); ?>" class="btn btn-sm btn-info" style="color: #fff; margin-right: 5px;"><i class="fa-solid fa-file-import"></i> 📥 Upload JSON</a></li>
                         <li><a href="<?php echo base_url('PushNotification/composer'); ?>" class="btn btn-sm btn-primary" style="color: #fff;">+ New Push</a></li>
                     </ul>
                 </div>
-                <div class="data-fluid">
+                                <div class="data-fluid">
+                    <div style="padding: 10px 16px; background: #f8fafc; border-bottom: 1px solid #e2e8f0; display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                        <span style="font-size: 12px; font-weight: 700; color: #64748b;">Filter Campaigns:</span>
+                        <a href="<?php echo base_url('PushNotification/campaigns'); ?>" class="btn btn-xs <?php echo empty($filters['status']) ? 'btn-primary' : 'btn-default'; ?>" style="font-weight: 600;">All</a>
+                        <a href="<?php echo base_url('PushNotification/campaigns?status=SCHEDULED'); ?>" class="btn btn-xs <?php echo (isset($filters['status']) && $filters['status'] === 'SCHEDULED') ? 'btn-info' : 'btn-default'; ?>" style="font-weight: 700; color: #0284c7; border-color: #38bdf8;">
+                            ⏰ Scheduled
+                        </a>
+                        <a href="<?php echo base_url('PushNotification/campaigns?status=PAUSED'); ?>" class="btn btn-xs <?php echo (isset($filters['status']) && $filters['status'] === 'PAUSED') ? 'btn-warning' : 'btn-default'; ?>" style="font-weight: 700; color: #d97706; border-color: #f59e0b;">
+                            ⏸️ Paused
+                        </a>
+                        <a href="<?php echo base_url('PushNotification/campaigns?status=SENT'); ?>" class="btn btn-xs <?php echo (isset($filters['status']) && $filters['status'] === 'SENT') ? 'btn-success' : 'btn-default'; ?>" style="font-weight: 600;">Sent</a>
+                        <a href="<?php echo base_url('PushNotification/campaigns?status=DRAFT'); ?>" class="btn btn-xs <?php echo (isset($filters['status']) && $filters['status'] === 'DRAFT') ? 'btn-warning' : 'btn-default'; ?>" style="font-weight: 600;">Drafts</a>
+                    </div>
                     <table class="table" style="margin-bottom: 0;">
                         <thead>
                             <tr>
@@ -90,6 +115,11 @@
                                         </a>
                                     <?php } else { ?>
                                         <span class="text-muted" style="font-size: 10px;">No Image</span>
+                                        <?php if (in_array($camp['status'], array('SCHEDULED', 'DRAFT'))) { ?>
+                                            <div style="margin-top: 3px;">
+                                                <a href="<?php echo base_url('PushNotification/edit/' . $camp['id']); ?>" style="font-size: 10px; color: #0284c7; font-weight: 700;">+ Add Image</a>
+                                            </div>
+                                        <?php } ?>
                                     <?php } ?>
                                 </td>
                                 <td>
@@ -106,7 +136,14 @@
                                     </div>
                                 </td>
                                 <td>
-                                    <?php if ($camp['sent_at']) { ?>
+                                    <?php if ($camp['status'] === 'SCHEDULED' && !empty($camp['scheduled_at'])) { ?>
+                                        <span class="text-primary" style="font-weight: 700; font-size: 11.5px;">
+                                            📅 <?php echo date('M d, Y', strtotime($camp['scheduled_at'])); ?>
+                                        </span>
+                                        <div style="font-size: 11px; color: #0284c7; font-weight: 600;">
+                                            ⏱️ <?php echo date('h:i A', strtotime($camp['scheduled_at'])); ?> IST
+                                        </div>
+                                    <?php } elseif ($camp['sent_at']) { ?>
                                         <small><?php echo date('M d, Y', strtotime($camp['sent_at'])); ?><br><?php echo date('h:i A', strtotime($camp['sent_at'])); ?></small>
                                     <?php } else { ?>
                                         <span class="text-muted"><small><?php echo date('M d, Y', strtotime($camp['created_at'])); ?></small></span>
@@ -118,6 +155,29 @@
                                         <?php if ($camp['is_dry_run']) { ?>
                                             <div style="margin-top: 2px;"><span class="label label-warning" style="font-size: 9px;">DRY-RUN</span></div>
                                         <?php } ?>
+                                    <?php } elseif ($camp['status'] === 'SCHEDULED') { ?>
+                                        <span class="label label-info" style="background: #0284c7; font-weight: bold; font-size: 10.5px; padding: 3px 8px;">
+                                            ⏰ SCHEDULED
+                                        </span>
+                                        <?php if (!empty($camp['scheduled_at'])) { ?>
+                                            <div style="font-size: 10px; color: #0369a1; margin-top: 3px; font-weight: 600;">
+                                                Due: <?php echo date('d M, h:i A', strtotime($camp['scheduled_at'])); ?>
+                                            </div>
+                                        <?php } ?>
+                                        <?php if ($camp['is_dry_run']) { ?>
+                                            <div style="margin-top: 2px;"><span class="label label-warning" style="font-size: 9px;">DRY-RUN</span></div>
+                                        <?php } ?>
+                                    <?php } elseif ($camp['status'] === 'PAUSED') { ?>
+                                        <span class="label label-warning" style="background: #e67e22; font-weight: bold; font-size: 10.5px; padding: 3px 8px;">
+                                            ⏸️ PAUSED
+                                        </span>
+                                        <?php if (!empty($camp['scheduled_at'])) { ?>
+                                            <div style="font-size: 10px; color: #b45309; margin-top: 3px;">
+                                                Target: <?php echo date('d M, h:i A', strtotime($camp['scheduled_at'])); ?>
+                                            </div>
+                                        <?php } ?>
+                                    <?php } elseif ($camp['status'] === 'CANCELLED') { ?>
+                                        <span class="label label-default" style="text-decoration: line-through;">CANCELLED</span>
                                     <?php } elseif ($camp['status'] === 'DRAFT') { ?>
                                         <span class="label label-default">DRAFT</span>
                                     <?php } elseif ($camp['status'] === 'PROCESSING') { ?>
@@ -127,6 +187,12 @@
                                     <?php } ?>
                                 </td>
                                 <td>
+                                    <?php if ($camp['status'] === 'SCHEDULED') { ?>
+                                        <div style="font-size: 11.5px; color: #0369a1; background: #e0f2fe; padding: 6px 10px; border-radius: 4px; border: 1px dashed #7dd3fc; line-height: 1.5;">
+                                            ⏱️ Queued for automatic send on:<br>
+                                            <strong>📅 <?php echo date('d M Y, h:i A', strtotime($camp['scheduled_at'])); ?></strong>
+                                        </div>
+                                    <?php } else { ?>
                                     <div style="font-size: 11.5px; line-height: 1.6;">
                                         <?php if ($camp['target_type'] === 'TOPIC') { ?>
                                             <div>FCM Status: <span class="label label-success" style="font-size: 10px;">TOPIC BROADCAST</span></div>
@@ -137,10 +203,52 @@
                                         <div style="margin-top: 3px;">Confirmed Devices: <strong class="text-success"><?php echo number_format($camp['confirmed_delivery_count']); ?></strong></div>
                                         <div>Notification Opens: <strong class="text-primary"><?php echo number_format($camp['open_count']); ?></strong></div>
                                     </div>
+                                    <?php } ?>
                                 </td>
                                 <td class="TAC">
-                                    <?php if ($camp['status'] === 'DRAFT') { ?>
-                                        <a href="<?php echo base_url('PushNotification/composer/' . $camp['id']); ?>" class="btn btn-xs btn-primary">Edit</a>
+                                    <?php if ($camp['status'] === 'SCHEDULED') { ?>
+                                        <div style="display: flex; gap: 4px; flex-direction: column; align-items: stretch; min-width: 100px;">
+                                            <a href="<?php echo base_url('PushNotification/edit/' . $camp['id']); ?>" class="btn btn-xs btn-primary" title="Edit title, message, time & upload image" style="font-weight: 700;">
+                                                ✏️ Edit / Image
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/pause_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-warning" onclick="return confirm('Pause this scheduled notification? It will NOT be sent until resumed.');" title="Pause notification" style="color: #fff; background: #f39c12; font-weight: 700;">
+                                                ⏸️ Pause
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/send_scheduled_now/' . $camp['id']); ?>" class="btn btn-xs btn-success" onclick="return confirm('Send this scheduled notification immediately right now?');" title="Send immediately" style="font-weight: 600;">
+                                                🚀 Send Now
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/delete_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-default text-danger" onclick="return confirm('Delete notification #<?php echo $camp['id']; ?> permanently?');" title="Delete notification" style="color: #c0392b; font-weight: 600;">
+                                                🗑️ Delete
+                                            </a>
+                                        </div>
+                                    <?php } elseif ($camp['status'] === 'PAUSED') { ?>
+                                        <div style="display: flex; gap: 4px; flex-direction: column; align-items: stretch; min-width: 100px;">
+                                            <a href="<?php echo base_url('PushNotification/edit/' . $camp['id']); ?>" class="btn btn-xs btn-primary" title="Edit title, message, time & upload image" style="font-weight: 700;">
+                                                ✏️ Edit / Image
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/resume_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-info" title="Resume notification" style="font-weight: 700; background: #0284c7; color: #fff;">
+                                                ▶️ Resume
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/send_scheduled_now/' . $camp['id']); ?>" class="btn btn-xs btn-success" onclick="return confirm('Send this notification immediately right now?');" title="Send immediately" style="font-weight: 600;">
+                                                🚀 Send Now
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/delete_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-default text-danger" onclick="return confirm('Delete notification #<?php echo $camp['id']; ?> permanently?');" title="Delete notification" style="color: #c0392b; font-weight: 600;">
+                                                🗑️ Delete
+                                            </a>
+                                        </div>
+                                    <?php } elseif ($camp['status'] === 'DRAFT') { ?>
+                                        <div style="display: flex; gap: 4px; flex-direction: column; align-items: stretch; min-width: 90px;">
+                                            <a href="<?php echo base_url('PushNotification/edit/' . $camp['id']); ?>" class="btn btn-xs btn-primary" style="font-weight: 700;">
+                                                ✏️ Edit / Image
+                                            </a>
+                                            <a href="<?php echo base_url('PushNotification/delete_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-default text-danger" onclick="return confirm('Delete this draft permanently?');" style="color: #c0392b; font-weight: 600;">
+                                                🗑️ Delete
+                                            </a>
+                                        </div>
+                                    <?php } elseif ($camp['status'] === 'CANCELLED') { ?>
+                                        <a href="<?php echo base_url('PushNotification/delete_campaign/' . $camp['id']); ?>" class="btn btn-xs btn-default text-danger" onclick="return confirm('Delete this cancelled notification?');" style="color: #c0392b; font-weight: 600;">
+                                            🗑️ Delete
+                                        </a>
                                     <?php } else { ?>
                                         <button type="button" class="btn btn-xs btn-info" onclick="viewCampaignDetails(<?php echo $camp['id']; ?>)">
                                             Inspect

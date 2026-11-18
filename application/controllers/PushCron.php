@@ -51,6 +51,9 @@ class PushCron extends CI_Controller {
         }
 
         try {
+            // 1. Process Date & Time SCHEDULED campaigns that are due right now!
+            $this->process_scheduled_campaigns();
+
             // 2. Check Emergency Pause
             $is_paused = (int)$this->Push_notification_model->get_config('is_campaign_paused');
             if ($is_paused === 1) {
@@ -214,6 +217,100 @@ class PushCron extends CI_Controller {
             );
             $this->log_output("[X] FAILED! " . $error_msg . " (Retryable: " . ($is_retryable ? 'YES' : 'NO') . ")");
         }
+
+        // -------------------------------------------------------------
+        // Secondary Profile: Nitin Sir App (Dispatches a DISTINCT Poster)
+        // -------------------------------------------------------------
+        if ($this->fcm_v1_client->has_valid_credentials('nitin')) {
+            $nitin_paused_val = $this->Push_notification_model->get_config('nitin_is_campaign_paused');
+            $nitin_is_paused  = ($nitin_paused_val !== null) ? (int)$nitin_paused_val : 0;
+            if ($nitin_is_paused === 1) {
+                $this->log_output("[-] Nitin Sir App: Automated campaign is PAUSED. Skipping.");
+            } else {
+                $nitin_dry_val = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+                $nitin_dry_run = ($nitin_dry_val !== null) ? (int)$nitin_dry_val : 1;
+                $this->log_output("[*] Processing scheduled slot for Nitin Sir App (fetching distinct poster, Mode: " . ($nitin_dry_run ? 'DRY-RUN' : 'LIVE') . ")...");
+                
+                // Find next APPROVED item so Nitin Sir app gets a DIFFERENT poster from Chirag Sir
+                $nitin_item = $this->db->where('status', 'APPROVED')
+                                       ->order_by('id', 'ASC')
+                                       ->limit(1)
+                                       ->get('push_notification_bank')
+                                       ->row_array();
+
+                if ($nitin_item) {
+                    $this->db->where('id', $nitin_item['id'])
+                             ->where('status', 'APPROVED')
+                             ->update('push_notification_bank', array(
+                                 'status'        => 'PROCESSING',
+                                 'scheduled_at'  => date('Y-m-d H:i:s'),
+                                 'attempt_count' => (int)$nitin_item['attempt_count'] + 1
+                             ));
+
+                    $this->fcm_v1_client->set_profile('nitin');
+                    $nitin_devs = $this->Push_notification_model->get_registered_devices_count(true, 'nitin');
+                    if ($nitin_devs <= 0) $nitin_devs = 1;
+
+                    $nitin_camp_data = array(
+                        'title'                    => $nitin_item['title'],
+                        'message'                  => $nitin_item['body'],
+                        'image_url'                => !empty($nitin_item['image_url']) ? $nitin_item['image_url'] : null,
+                        'target_type'              => 'TOPIC',
+                        'target_value'             => $topic,
+                        'target_screen'            => !empty($nitin_item['target_screen']) ? $nitin_item['target_screen'] : 'category_detail',
+                        'cat_id'                   => !empty($nitin_item['category_id']) ? (int)$nitin_item['category_id'] : 10,
+                        'status'                   => 'PROCESSING',
+                        'is_dry_run'               => $nitin_dry_run,
+                        'targeted_count'           => $nitin_devs,
+                        'accepted_count'           => 0,
+                        'confirmed_delivery_count' => 0,
+                        'open_count'               => 0,
+                        'created_by'               => 'PushCron [Nitin Sir] (' . $slot_name . ')'
+                    );
+                    $nitin_camp_id = $this->Push_notification_model->create_manual_campaign($nitin_camp_data);
+                    $nitin_item['campaign_id'] = $nitin_camp_id;
+
+                    $nitin_res = $this->fcm_v1_client->send('TOPIC', $topic, $nitin_item, (bool)$nitin_dry_run);
+
+                    if ($nitin_res['success']) {
+                        $this->Push_notification_model->update_item($nitin_item['id'], array(
+                            'status'         => 'SENT',
+                            'fcm_message_id' => $nitin_res['fcm_message_id'],
+                            'sent_at'        => date('Y-m-d H:i:s')
+                        ));
+                        $this->Push_notification_model->update_manual_campaign($nitin_camp_id, array(
+                            'status'         => 'SENT',
+                            'accepted_count' => $nitin_devs,
+                            'fcm_message_id' => $nitin_res['fcm_message_id'],
+                            'sent_at'        => date('Y-m-d H:i:s')
+                        ));
+                        $this->db->insert('push_notification_logs', array(
+                            'bank_id'                  => $nitin_item['id'],
+                            'campaign_id'              => $nitin_camp_id,
+                            'title'                    => '[Nitin Sir App] ' . $nitin_item['title'],
+                            'target_type'              => 'TOPIC',
+                            'target_destination'       => $topic . ' (nitin)',
+                            'http_status'              => $nitin_res['http_status'],
+                            'fcm_message_id'           => $nitin_res['fcm_message_id'],
+                            'response_body'            => is_string($nitin_res['response_body']) ? $nitin_res['response_body'] : json_encode($nitin_res['response_body']),
+                            'sent_count'               => $nitin_devs,
+                            'failed_count'             => 0,
+                            'confirmed_delivery_count' => 0,
+                            'click_count'              => 0,
+                            'is_dry_run'               => $nitin_dry_run,
+                            'execution_time_ms'        => $nitin_res['execution_time_ms'],
+                            'created_at'               => date('Y-m-d H:i:s')
+                        ));
+                        $this->log_output("[✓] Nitin Sir App: SUCCESS! Dispatched distinct Draft #{$nitin_item['id']}: '{$nitin_item['title']}'");
+                    } else {
+                        $this->Push_notification_model->update_item($nitin_item['id'], array('status' => 'FAILED'));
+                        $this->log_output("[X] Nitin Sir App dispatch failed: " . (isset($nitin_res['error']) ? $nitin_res['error'] : 'Unknown'));
+                    }
+                } else {
+                    $this->log_output("[-] No extra approved drafts in bank for Nitin Sir App.");
+                }
+            }
+        }
     }
 
     /**
@@ -266,5 +363,95 @@ class PushCron extends CI_Controller {
         if (function_exists('ob_flush')) { @ob_flush(); }
         flush();
         log_message('info', $msg);
+    }
+
+    /**
+     * Dispatches any custom campaigns scheduled for a specific Date & Time
+     */
+    protected function process_scheduled_campaigns() {
+        $now_str = date('Y-m-d H:i:s');
+        $due = $this->Push_notification_model->get_due_scheduled_campaigns($now_str);
+        if (empty($due)) {
+            return;
+        }
+
+        $this->log_output("[*] Found " . count($due) . " SCHEDULED campaign(s) due for dispatch at {$now_str} (Asia/Kolkata).");
+
+        foreach ($due as $camp) {
+            $camp_id = (int)$camp['id'];
+
+            // Mutex lock on campaign record: transition SCHEDULED -> PROCESSING
+            $this->db->where('id', $camp_id)
+                     ->where('status', 'SCHEDULED')
+                     ->update('push_manual_campaigns', array('status' => 'PROCESSING', 'updated_at' => $now_str));
+
+            if ($this->db->affected_rows() === 0) {
+                continue; // Already claimed by another worker
+            }
+
+            $this->log_output("[+] Claimed and executing Scheduled Campaign #{$camp_id}: '{$camp['title']}' [Target Time: {$camp['scheduled_at']}]");
+
+            $app_code    = !empty($camp['app_code']) ? $camp['app_code'] : 'chirag';
+            $target_apps = ($app_code === 'both') ? array('chirag', 'nitin') : array($app_code);
+            $dry_run     = (int)$camp['is_dry_run'];
+
+            $content = array(
+                'id'            => 'SC_' . $camp_id,
+                'campaign_id'   => $camp_id,
+                'title'         => $camp['title'],
+                'body'          => $camp['message'],
+                'cat_id'        => !empty($camp['cat_id']) ? (int)$camp['cat_id'] : 10,
+                'category_name' => 'Poster Special',
+                'target_screen' => !empty($camp['target_screen']) ? $camp['target_screen'] : 'category_detail',
+                'image_url'     => !empty($camp['image_url']) ? $camp['image_url'] : null
+            );
+
+            $total_accepted = 0;
+            $last_res = array('success' => false, 'fcm_message_id' => null, 'http_status' => 0);
+
+            foreach ($target_apps as $ac) {
+                if (isset($this->fcm_v1_client) && method_exists($this->fcm_v1_client, 'set_profile')) {
+                    $this->fcm_v1_client->set_profile($ac);
+                }
+
+                $topic = !empty($camp['target_value']) ? $camp['target_value'] : 'all_users';
+                $app_dry = ($ac === 'nitin') ? (int)$this->Push_notification_model->get_config('nitin_dry_run_mode') : $dry_run;
+
+                $dev_count = $this->Push_notification_model->get_registered_devices_count(true, $ac);
+                if ($dev_count <= 0) $dev_count = ($ac === 'nitin') ? 1 : 23;
+
+                $res = $this->fcm_v1_client->send('TOPIC', $topic, $content, (bool)$app_dry);
+                if ($res['success']) {
+                    $total_accepted += $dev_count;
+                    $last_res = $res;
+                }
+
+                $this->db->insert('push_notification_logs', array(
+                    'bank_id'            => 0,
+                    'campaign_id'        => $camp_id,
+                    'title'              => "[Scheduled] " . $camp['title'],
+                    'target_type'        => 'TOPIC',
+                    'target_destination' => "{$topic} ({$ac})",
+                    'http_status'        => $res['http_status'],
+                    'fcm_message_id'     => $res['fcm_message_id'],
+                    'response_body'      => is_string($res['response_body']) ? $res['response_body'] : json_encode($res['response_body']),
+                    'sent_count'         => $res['success'] ? $dev_count : 0,
+                    'failed_count'       => $res['success'] ? 0 : $dev_count,
+                    'is_dry_run'         => $app_dry,
+                    'execution_time_ms'  => $res['execution_time_ms'],
+                    'created_at'         => date('Y-m-d H:i:s')
+                ));
+            }
+
+            $final_status = ($total_accepted > 0 || $last_res['success']) ? 'SENT' : 'FAILED';
+            $this->Push_notification_model->update_manual_campaign($camp_id, array(
+                'status'         => $final_status,
+                'accepted_count' => $total_accepted,
+                'fcm_message_id' => $last_res['fcm_message_id'],
+                'sent_at'        => date('Y-m-d H:i:s')
+            ));
+
+            $this->log_output("[✓] Scheduled Campaign #{$camp_id} dispatch completed with status: {$final_status}");
+        }
     }
 }

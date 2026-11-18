@@ -1,6 +1,20 @@
 <link href="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/css/select2.min.css" rel="stylesheet" />
 <script src="https://cdnjs.cloudflare.com/ajax/libs/select2/4.0.6-rc.0/js/select2.min.js"></script>
-<div class="container">  
+<div class="container">
+    <div class="page-header">
+        <div class="wrap-title">
+            <div class="icon">
+                <i class="fa-solid fa-wand-magic-sparkles"></i>
+            </div>
+            <h1><?php echo (!empty($editposter)) ? 'Edit Poster Template' : 'Add Poster Template'; ?> <small><span class="cgreen"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> Template Builder</span></small></h1>
+        </div>
+        <ul class="breadcrumb">
+            <li><a href="<?php echo base_url(); ?>site">Home</a></li>
+            <li><a href="<?php echo base_url(); ?>site/poster">Poster Templates</a></li>
+            <li class="active"><?php echo (!empty($editposter)) ? 'Edit Poster' : 'Add Poster'; ?></li>
+        </ul>
+        <div class="clear"></div>
+    </div>  
 	<div class="row">
 		<div class="col-sm-12">
 			<?php 

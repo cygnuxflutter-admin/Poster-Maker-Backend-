@@ -12,6 +12,11 @@
         <div class="clear"></div>
     </div>
 
+    <!-- App Workspace Selector Bar -->
+    <?php if (file_exists(APPPATH . 'views/push_notification/app_selector_bar.php')) {
+        $this->load->view('push_notification/app_selector_bar');
+    } ?>
+
     <!-- Navigation Tabs -->
     <div class="row" style="margin-bottom: 20px;">
         <div class="col-md-12">
@@ -20,6 +25,7 @@
                 <li><a href="<?php echo base_url('PushNotification/bank'); ?>">🗂 Content Bank (2,000)</a></li>
                 <li><a href="<?php echo base_url('PushNotification/composer'); ?>">✍️ Manual Push Composer</a></li>
                 <li><a href="<?php echo base_url('PushNotification/campaigns'); ?>">📢 Campaign History</a></li>
+                <li><a href="<?php echo base_url('PushNotification/import_json'); ?>">📥 Bulk JSON Import</a></li>
                 <li><a href="<?php echo base_url('PushNotification/test_send'); ?>">🚀 Send Test Push</a></li>
                 <li class="active"><a href="<?php echo base_url('PushNotification/logs'); ?>">📜 Delivery Logs</a></li>
                 <li><a href="<?php echo base_url('PushNotification/settings'); ?>">⚙️ Settings</a></li>

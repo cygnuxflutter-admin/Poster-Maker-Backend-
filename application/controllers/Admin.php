@@ -33,6 +33,9 @@ class Admin extends CI_Controller{
 		}
 	}
 	public function showAdmin(){
+		if(!$this->session->userdata('poster_sess_user_name')){
+			redirect('admin');
+		}
 		$this->load->view('header');
 		$this->load->view('sidebar');
 		$this->load->view('admin');

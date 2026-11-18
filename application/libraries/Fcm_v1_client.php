@@ -4,11 +4,13 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 /**
  * FCM HTTP v1 Client for CodeIgniter 3
  * Self-contained OAuth2 RS256 JWT Token Generator + Google FCM HTTP v1 API Client.
+ * Supports multi-app profile switching (Chirag Sir App & Nitin Sir App).
  * Zero external Composer dependencies required (uses native OpenSSL and cURL).
  */
 class Fcm_v1_client {
 
     protected $CI;
+    protected $active_profile = 'chirag';
     protected $service_account_path;
     protected $project_id;
     protected $access_token = null;
@@ -18,21 +20,86 @@ class Fcm_v1_client {
     public function __construct($config = array()) {
         $this->CI =& get_instance();
         
-        $default_path = APPPATH . 'config/secrets/firebase_service_account.json';
-        $this->service_account_path = isset($config['service_account_path']) ? $config['service_account_path'] : $default_path;
-        $this->project_id = isset($config['project_id']) ? $config['project_id'] : 'poster---text-art';
-        $this->cache_file = APPPATH . 'cache/fcm_oauth_token.json';
+        $profile = isset($config['profile']) ? $config['profile'] : 'chirag';
+        $this->set_profile($profile);
+
+        if (isset($config['service_account_path'])) {
+            $this->service_account_path = $config['service_account_path'];
+        }
+        if (isset($config['project_id'])) {
+            $this->project_id = $config['project_id'];
+        }
+    }
+
+    /**
+     * Switch active profile between Chirag Sir app and Nitin Sir app
+     * 
+     * @param string $profile 'chirag' or 'nitin'
+     * @return $this
+     */
+    public function set_profile($profile = 'chirag') {
+        $profile = strtolower(trim((string)$profile));
+        if ($profile === 'nitin') {
+            $this->active_profile       = 'nitin';
+            $this->service_account_path = APPPATH . 'config/secrets/nitin_poster_service_account.json';
+            $this->cache_file           = APPPATH . 'cache/fcm_oauth_token_nitin.json';
+        } else {
+            $this->active_profile       = 'chirag';
+            $this->service_account_path = APPPATH . 'config/secrets/firebase_service_account.json';
+            $this->cache_file           = APPPATH . 'cache/fcm_oauth_token.json';
+        }
+
+        // Reset in-memory token
+        $this->access_token     = null;
+        $this->token_expires_at = 0;
+
+        // Auto-detect project_id from json file
+        if (file_exists($this->service_account_path)) {
+            $sa = @json_decode(file_get_contents($this->service_account_path), true);
+            if (!empty($sa['project_id'])) {
+                $this->project_id = $sa['project_id'];
+            }
+        }
+
+        return $this;
+    }
+
+    /**
+     * Get active profile name ('chirag' or 'nitin')
+     */
+    public function get_profile() {
+        return $this->active_profile;
+    }
+
+    /**
+     * Get active project id
+     */
+    public function get_project_id() {
+        if (file_exists($this->service_account_path)) {
+            $sa = @json_decode(file_get_contents($this->service_account_path), true);
+            if (!empty($sa['project_id'])) {
+                return $sa['project_id'];
+            }
+        }
+        return $this->project_id;
     }
 
     /**
      * Check if service account credentials file exists and is valid.
      */
-    public function has_valid_credentials() {
-        if (!file_exists($this->service_account_path)) {
+    public function has_valid_credentials($profile = null) {
+        $path = $this->service_account_path;
+        if ($profile !== null) {
+            $path = ($profile === 'nitin') 
+                ? APPPATH . 'config/secrets/nitin_poster_service_account.json'
+                : APPPATH . 'config/secrets/firebase_service_account.json';
+        }
+
+        if (!file_exists($path)) {
             return false;
         }
-        $content = file_get_contents($this->service_account_path);
-        $json = json_decode($content, true);
+        $content = @file_get_contents($path);
+        $json = @json_decode($content, true);
         return is_array($json) && !empty($json['client_email']) && !empty($json['private_key']);
     }
 
@@ -189,7 +256,8 @@ class Fcm_v1_client {
                 'body'            => $body,
                 'cat_id'          => $cat_id,
                 'category_name'   => $cat_name,
-                'target_screen'   => $target_screen
+                'target_screen'   => $target_screen,
+                'target_app'      => $this->active_profile
             ),
             'android' => array(
                 'priority' => 'HIGH',
@@ -225,13 +293,14 @@ class Fcm_v1_client {
         // Handle DRY-RUN mode safely
         if ($is_dry_run) {
             $exec_time = round((microtime(true) - $start_time) * 1000);
-            $simulated_msg_id = 'projects/' . $this->project_id . '/messages/dryrun_' . bin2hex(random_bytes(10));
+            $simulated_msg_id = 'projects/' . $this->project_id . '/messages/dryrun_' . $this->active_profile . '_' . bin2hex(random_bytes(8));
             return array(
                 'success'           => true,
                 'is_dry_run'        => true,
+                'profile'           => $this->active_profile,
                 'http_status'       => 200,
                 'fcm_message_id'    => $simulated_msg_id,
-                'response_body'     => json_encode(array('name' => $simulated_msg_id, 'mode' => 'SIMULATED_DRY_RUN')),
+                'response_body'     => json_encode(array('name' => $simulated_msg_id, 'mode' => 'SIMULATED_DRY_RUN', 'profile' => $this->active_profile)),
                 'execution_time_ms' => $exec_time,
                 'is_retryable'      => false,
                 'payload_preview'   => array('message' => $message)
@@ -246,6 +315,7 @@ class Fcm_v1_client {
             return array(
                 'success'           => false,
                 'is_dry_run'        => false,
+                'profile'           => $this->active_profile,
                 'http_status'       => 401,
                 'fcm_message_id'    => null,
                 'error'             => 'Authentication Error: ' . $e->getMessage(),
@@ -285,6 +355,7 @@ class Fcm_v1_client {
             return array(
                 'success'           => false,
                 'is_dry_run'        => false,
+                'profile'           => $this->active_profile,
                 'http_status'       => 0,
                 'fcm_message_id'    => null,
                 'error'             => 'Network cURL error: ' . $curl_error,
@@ -300,6 +371,7 @@ class Fcm_v1_client {
             return array(
                 'success'           => true,
                 'is_dry_run'        => false,
+                'profile'           => $this->active_profile,
                 'http_status'       => 200,
                 'fcm_message_id'    => $resp['name'],
                 'response_body'     => $response_raw,
@@ -320,6 +392,7 @@ class Fcm_v1_client {
         return array(
             'success'           => false,
             'is_dry_run'        => false,
+            'profile'           => $this->active_profile,
             'http_status'       => $http_code,
             'fcm_message_id'    => null,
             'error'             => "FCM Error ({$http_code}/{$error_status}): {$error_msg}",

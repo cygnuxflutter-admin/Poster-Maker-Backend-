@@ -1,7 +1,7 @@
 <div class="container">
     <div class="page-header">
         <div class="wrap-title">
-            <div class="icon"><span class="ico-bell"></span></div>
+            <div class="icon"><i class="fa-solid fa-bell"></i></div>
             <h1>Push Notifications <small><span class="cgreen">Automated FCM System</span></small></h1>
         </div>
         <ul class="breadcrumb">
@@ -23,12 +23,18 @@
         </div>
     <?php } ?>
 
+    <!-- App Workspace Selector Bar -->
+    <?php if (file_exists(APPPATH . 'views/push_notification/app_selector_bar.php')) {
+        $this->load->view('push_notification/app_selector_bar');
+    } ?>
+
     <!-- Control Status Banners -->
     <div class="row" style="margin-bottom: 20px;">
         <div class="col-md-12">
             <div style="background: #fff; padding: 15px 20px; border-radius: 4px; box-shadow: 0 1px 3px rgba(0,0,0,0.1); display: flex; align-items: center; justify-content: space-between; flex-wrap: wrap; gap: 10px;">
                 <div>
                     <span style="font-size: 15px; font-weight: 600; margin-right: 15px;">
+                        <span class="label <?php echo ($active_app === 'nitin') ? 'label-warning' : 'label-info'; ?>" style="font-size: 11px; vertical-align: middle; margin-right: 4px;"><?php echo ($active_app === 'nitin') ? 'Nitin Sir App' : 'Chirag Sir App'; ?></span>
                         Campaign Status: 
                         <?php if ($stats['is_paused']) { ?>
                             <span class="label label-danger" style="font-size: 13px;">PAUSED</span>
@@ -65,6 +71,7 @@
                 <li><a href="<?php echo base_url('PushNotification/bank'); ?>">🗂 Content Bank (2,000)</a></li>
                 <li><a href="<?php echo base_url('PushNotification/composer'); ?>">✍️ Manual Push Composer</a></li>
                 <li><a href="<?php echo base_url('PushNotification/campaigns'); ?>">📢 Campaign History</a></li>
+                <li><a href="<?php echo base_url('PushNotification/import_json'); ?>">📥 Bulk JSON Import</a></li>
                 <li><a href="<?php echo base_url('PushNotification/test_send'); ?>">🚀 Send Test Push</a></li>
                 <li><a href="<?php echo base_url('PushNotification/logs'); ?>">📜 Delivery Logs</a></li>
                 <li><a href="<?php echo base_url('PushNotification/settings'); ?>">⚙️ Settings</a></li>
@@ -176,7 +183,8 @@
                     <h2>Firebase FCM HTTP v1 Configuration</h2>
                 </div>
                 <div class="data-fluid" style="padding: 15px;">
-                    <p><strong>Firebase Project:</strong> <code>poster---text-art</code></p>
+                    <p><strong>Firebase Project:</strong> <code><?php echo !empty($active_project_id) ? htmlspecialchars($active_project_id) : 'poster---text-art'; ?></code></p>
+                    <p><strong>Active Target Workspace:</strong> <span class="label <?php echo ($active_app === 'nitin') ? 'label-warning' : 'label-info'; ?>" style="font-size: 12px;"><?php echo ($active_app === 'nitin') ? '🟢 Nitin Sir App' : '🔵 Chirag Sir App'; ?></span></p>
                     <p><strong>Service Account Key:</strong> 
                         <?php if ($has_creds) { ?>
                             <span class="label label-success">Installed & Verified</span>

@@ -24,6 +24,11 @@
         </div>
     <?php } ?>
 
+    <!-- App Workspace Selector Bar -->
+    <?php if (file_exists(APPPATH . 'views/push_notification/app_selector_bar.php')) {
+        $this->load->view('push_notification/app_selector_bar');
+    } ?>
+
     <!-- Navigation Tabs -->
     <div class="row" style="margin-bottom: 20px;">
         <div class="col-md-12">
@@ -32,6 +37,7 @@
                 <li><a href="<?php echo base_url('PushNotification/bank'); ?>">🗂 Content Bank (2,000)</a></li>
                 <li class="active"><a href="<?php echo base_url('PushNotification/composer'); ?>">✍️ Manual Push Composer</a></li>
                 <li><a href="<?php echo base_url('PushNotification/campaigns'); ?>">📢 Campaign History</a></li>
+                <li><a href="<?php echo base_url('PushNotification/import_json'); ?>">📥 Bulk JSON Import</a></li>
                 <li><a href="<?php echo base_url('PushNotification/test_send'); ?>">🚀 Send Test Push</a></li>
                 <li><a href="<?php echo base_url('PushNotification/logs'); ?>">📜 Delivery Logs</a></li>
                 <li><a href="<?php echo base_url('PushNotification/settings'); ?>">⚙️ Settings</a></li>
@@ -49,6 +55,27 @@
                 </div>
                 <div class="data-fluid" style="padding: 20px;">
                     <form action="<?php echo base_url('PushNotification/send_manual'); ?>" method="POST" enctype="multipart/form-data" id="composerForm">
+                        
+                        <!-- Target Application Selection Dropdown -->
+                        <div class="form-group" style="margin-bottom: 20px; background: #eef4f8; padding: 14px 18px; border-radius: 6px; border: 1px solid #b8d4e8;">
+                            <label style="font-size: 13.5px; color: #1e3c72; margin-bottom: 8px;">
+                                <strong><span class="ico-mobile"></span> Select Target Application:</strong> <span class="text-danger">*</span>
+                            </label>
+                            <select name="target_app" id="targetAppSelect" class="form-control" style="font-weight: 600; font-size: 13.5px; height: 38px;">
+                                <option value="chirag" <?php echo ($active_app === 'chirag') ? 'selected' : ''; ?>>
+                                    🔵 Chirag Sir App Only (firebase_service_account.json)
+                                </option>
+                                <option value="nitin" <?php echo ($active_app === 'nitin') ? 'selected' : ''; ?>>
+                                    🟢 Nitin Sir App Only (nitin_poster_service_account.json)
+                                </option>
+                                <option value="both">
+                                    📢 Both Apps Separately (Dispatch to Chirag Sir &amp; Nitin Sir)
+                                </option>
+                            </select>
+                            <span class="help-block text-muted" style="font-size: 11px; margin-top: 5px; margin-bottom: 0;">
+                                Select which app should receive this notification so that both apps don't get the same notification.
+                            </span>
+                        </div>
                         
                         <!-- Notification Title -->
                         <div class="form-group" style="margin-bottom: 18px;">
@@ -137,6 +164,45 @@
                             </div>
                         </div>
 
+                                                <!-- Delivery Timing (Send Immediately vs Schedule for Date & Time) -->
+                        <div class="form-group" style="margin-bottom: 22px; background: #f0f9ff; padding: 16px; border-radius: 8px; border: 1px solid #bae6fd;">
+                            <label style="font-size: 13.5px; color: #0369a1; margin-bottom: 10px; display: block;">
+                                <strong><span class="ico-time"></span> Delivery Timing (ક્યારે મોકલવી છે?):</strong> <span class="text-danger">*</span>
+                            </label>
+                            
+                            <div style="display: flex; gap: 20px; margin-bottom: 10px; flex-wrap: wrap;">
+                                <label style="cursor: pointer; font-weight: 600; font-size: 13px; color: #1e293b;">
+                                    <input type="radio" name="delivery_mode" value="NOW" checked onchange="toggleDeliverySchedule(false)" style="margin-right: 6px;">
+                                    🚀 Send Immediately (હમણાં જ મોકલો)
+                                </label>
+                                <label style="cursor: pointer; font-weight: 700; font-size: 13px; color: #0284c7;">
+                                    <input type="radio" name="delivery_mode" value="SCHEDULE" onchange="toggleDeliverySchedule(true)" style="margin-right: 6px;">
+                                    ⏰ Schedule for Future Date &amp; Time (તારીખ અને સમયે શેડ્યૂલ કરો)
+                                </label>
+                            </div>
+
+                            <!-- Date & Time Pickers Container -->
+                            <div id="scheduleInputsContainer" style="display: none; background: #ffffff; padding: 14px 16px; border-radius: 6px; border: 1px solid #7dd3fc; margin-top: 10px; box-shadow: 0 1px 4px rgba(0,0,0,0.05);">
+                                <div class="row">
+                                    <div class="col-xs-12 col-sm-6" style="margin-bottom: 10px;">
+                                        <label style="font-size: 12px; color: #334155; font-weight: 700;">
+                                            📅 Select Date (તારીખ): <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="date" name="scheduled_date" id="scheduledDate" class="form-control" min="<?php echo date('Y-m-d'); ?>" value="<?php echo date('Y-m-d'); ?>" style="font-weight: 600; font-size: 14px; border-color: #38bdf8;">
+                                    </div>
+                                    <div class="col-xs-12 col-sm-6" style="margin-bottom: 10px;">
+                                        <label style="font-size: 12px; color: #334155; font-weight: 700;">
+                                            ⏱️ Select Time (સમય - Asia/Kolkata): <span class="text-danger">*</span>
+                                        </label>
+                                        <input type="time" name="scheduled_time" id="scheduledTime" class="form-control" value="<?php echo date('H:i', strtotime('+15 minutes')); ?>" style="font-weight: 600; font-size: 14px; border-color: #38bdf8;">
+                                    </div>
+                                </div>
+                                <div style="font-size: 11.5px; color: #0284c7; margin-top: 4px; line-height: 1.5;">
+                                    💡 <strong>ઓટોમેટિક મોકલાશે:</strong> તમે પસંદ કરેલી તારીખ અને સમયે સર્વર Cron Job આપોઆપ આ નોટિફિકેશન બધા યુઝર્સના ફોન પર ડિસ્પેચ કરી આપશે.
+                                </div>
+                            </div>
+                        </div>
+
                         <!-- Safety Transmission Toggle -->
                         <div class="form-group" style="margin-bottom: 25px; background: <?php echo ($dry_run == 0) ? '#e8f8f5' : '#fff8e1'; ?>; padding: 14px 16px; border-radius: 6px; border: 1px solid <?php echo ($dry_run == 0) ? '#2ecc71' : '#ffe082'; ?>;">
                             <label style="cursor: pointer; font-weight: bold; color: <?php echo ($dry_run == 0) ? '#27ae60' : '#b78103'; ?>; margin-bottom: 0; font-size: 13.5px;">
@@ -158,7 +224,7 @@
 
                         <!-- Action Buttons -->
                         <div style="display: flex; gap: 10px; flex-wrap: wrap;">
-                            <button type="button" class="btn btn-primary" onclick="initiateSend()" style="padding: 10px 20px; font-size: 14px; font-weight: 600;">
+                            <button type="button" class="btn btn-primary" id="btnMainSubmit" onclick="initiateSend()" style="padding: 10px 22px; font-size: 14px; font-weight: 700; box-shadow: 0 4px 10px rgba(0,0,0,0.1);">
                                 🚀 Send Now
                             </button>
                             <button type="button" class="btn btn-default" onclick="saveAsDraft()" style="padding: 10px 20px; font-size: 14px;">
@@ -321,7 +387,41 @@ function updateLivePreview() {
     }
 }
 
+function toggleDeliverySchedule(isSchedule) {
+    if (isSchedule) {
+        $('#scheduleInputsContainer').slideDown(200);
+        $('#btnMainSubmit').html('⏰ Schedule Notification').removeClass('btn-primary').addClass('btn-info');
+    } else {
+        $('#scheduleInputsContainer').slideUp(200);
+        $('#btnMainSubmit').html('🚀 Send Now').removeClass('btn-info').addClass('btn-primary');
+    }
+}
+
 function initiateSend() {
+    var title = $('#notifTitle').val().trim();
+    var body  = $('#notifBody').val().trim();
+    if (!title || !body) {
+        alert('Please provide both Title and Notification Message before sending.');
+        return;
+    }
+
+    var deliveryMode = $('input[name="delivery_mode"]:checked').val();
+    if (deliveryMode === 'SCHEDULE') {
+        var sDate = $('#scheduledDate').val();
+        var sTime = $('#scheduledTime').val();
+        if (!sDate || !sTime) {
+            alert('Please select both Date and Time to schedule the notification.');
+            return;
+        }
+
+        var isLive = $('#forceLiveCheckbox').is(':checked');
+        var modeText = isLive ? "LIVE BROADCAST" : "SAFETY DRY-RUN";
+
+        if (confirm("⏰ Confirm Notification Schedule:\n\nThis notification will be automatically sent on:\n📅 Date: " + sDate + "\n⏱️ Time: " + sTime + " (Asia/Kolkata)\n📡 Mode: " + modeText + "\n\nProceed to schedule?")) {
+            submitFinalSend();
+        }
+        return;
+    }
     var title = $('#notifTitle').val().trim();
     var body  = $('#notifBody').val().trim();
     if (!title || !body) {

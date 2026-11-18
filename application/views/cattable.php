@@ -38,73 +38,78 @@
     <div class="page-header">
         <div class="wrap-title">
             <div class="icon">
-                <span class="ico-layout-7"></span>
+                <i class="fa-solid fa-layer-group"></i>
             </div>
-            <h1>Category <small> <span class="cgreen">Active Now </span><span class="cgreen ico-circle" style="font-size: 8px;"></span></small></h1>
+            <h1>Poster Categories <small><span class="cgreen"><i class="fa-solid fa-circle" style="font-size: 8px;"></i> Active</span></small></h1>
         </div>
         <ul class="breadcrumb">
-            <li>
-                <a href="/">Home</a>
-            </li>
-            <li class="active">Category</li>
+            <li><a href="<?php echo base_url(); ?>site">Home</a></li>
+            <li class="active">Categories</li>
         </ul>
         <div class="clear"></div>
     </div>
 
     <div class="row">
-        <div class="block">
-            <div class="head blue">
-                <div class="icon"><span class="ico-layout-9"></span></div>
-                <h2>Category</h2>
-                <ul class="buttons">
-                    <li><a href="showaddcatform"><div class="icon"><span class="ico-add"></span></div></a></li>
-                </ul>                                                   
-            </div> 
-
-            <div id="dialog-confirm" title="Delete Models?" style="display: none;">
-              <p style="margin:10px; font-size: 16px; color: red"><span class="ui-icon ui-icon-alert" style="float:left; margin:10px; font-size: 18px;"></span>This Category will be permanently deleted. Are you sure?</p>
-          </div>
-
-          <div class="data-fluid">
-            <table class="table fpTable lcnp" cellpadding="0" cellspacing="0" width="100%">
-                <thead>
-                    <tr>
-                        <th><input type="checkbox" class="checkall"/></th>
-                        <th>ID</th>
-                        <th width="">Category's Name</th>
-                        <th width="">Category's Thumb</th>
-                        <th>Sequence Number</th>
-                        <th width="" class="TAC">Actions</th>
-                    </tr>
-                </thead>
-                <tbody class="row_position">
-
-                    <?php if($data){ foreach ($data as $value) { ?>
-                    <tr  id="<?php echo $value['cat_id'] ?>" class="gradeX">
-                        <td><input type="checkbox" name="order[]" value="528"/></td>
-                        <td><?=$value['cat_id']?></td>
-                        <td><?php echo ucfirst($value['cat_name']); ?></td>
-                        <td><img src="<?= base_url($value['cat_thumb']) ?>" alt="" class="img img-thumbnail" width=50></td>
-                        <td class="seq_num" style="text-align: center"><?php echo isset($value['sequence_number']) ? $value['sequence_number'] : 0; ?></td>
-                        <td>
-                            <a href="<?php echo base_url()."site/showcateditform/".$value['cat_id']; ?>" class="button green">
-                                <div class="icon"><span class="ico-pencil"></span></div>
+        <div class="col-md-12">
+            <div class="block">
+                <div class="head">
+                    <h2><i class="fa-solid fa-table-list"></i> Category Listing & Sequence</h2>
+                    <ul class="buttons">
+                        <li>
+                            <a href="<?= base_url('site/showaddcatform') ?>" class="btn btn-primary">
+                                <i class="fa-solid fa-plus"></i> Add Category
                             </a>
-                            <!-- <button class="button red delete" id="<?php echo $value['app_id']; ?>"></button> -->
-                            <a href="javascript:void(0);" id="<?php echo $value['cat_id']; ?>" class="button red delete">
-                                                          <div class="icon"><span class="ico-remove"></span></div></a>                          
-                        </td>
-                    </tr>
-                    <?php } } ?>                          
-                </tbody>
-            </table>                    
-        </div> 
-    </div>                       
-</div>
-</div>  
+                        </li>
+                    </ul>                                                   
+                </div> 
 
+                <div id="dialog-confirm" title="Delete Category?" style="display: none;">
+                    <p style="margin:10px; font-size: 15px; color: #ef4444;">
+                        <i class="fa-solid fa-triangle-exclamation" style="margin-right: 8px;"></i> This Category will be permanently deleted. Are you sure?
+                    </p>
+                </div>
+
+                <div class="data-fluid">
+                    <table class="table fpTable lcnp" cellpadding="0" cellspacing="0" width="100%">
+                        <thead>
+                            <tr>
+                                <th width="4%"><input type="checkbox" class="checkall"/></th>
+                                <th width="8%">Category ID</th>
+                                <th width="35%">Category Name</th>
+                                <th width="20%">Thumbnail</th>
+                                <th width="18%" style="text-align: center;">Sequence Number</th>
+                                <th width="15%" class="TAC">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody class="row_position">
+                            <?php if($data){ foreach ($data as $value) { ?>
+                            <tr id="<?php echo $value['cat_id'] ?>" class="gradeX" style="cursor: move;">
+                                <td><input type="checkbox" name="order[]" value="528"/></td>
+                                <td><strong style="color: #64748b;">#<?=$value['cat_id']?></strong></td>
+                                <td><strong style="color: #0f172a; font-size: 14px;"><?php echo ucfirst($value['cat_name']); ?></strong></td>
+                                <td><img src="<?= base_url($value['cat_thumb']) ?>" alt="" class="img img-thumbnail" width="55" height="55" style="object-fit: cover;"></td>
+                                <td class="seq_num" style="text-align: center;"><?php echo isset($value['sequence_number']) ? $value['sequence_number'] : 0; ?></td>
+                                <td class="TAC">
+                                    <a href="<?php echo base_url()."site/showcateditform/".$value['cat_id']; ?>" class="button green" title="Edit Category">
+                                        <div class="icon"><i class="fa-solid fa-pen-to-square"></i></div>
+                                    </a>
+                                    <a href="javascript:void(0);" id="<?php echo $value['cat_id']; ?>" class="button red delete" title="Delete Category">
+                                        <div class="icon"><i class="fa-solid fa-trash"></i></div>
+                                    </a>                          
+                                </td>
+                            </tr>
+                            <?php } } ?>                          
+                        </tbody>
+                    </table>                    
+                </div> 
+            </div>                       
+        </div>
+    </div>  
+</div>
+
+<script type='text/javascript' src='<?php echo base_url(); ?>assets/js/jquery.sortable.js'></script>
 <script type="text/javascript">
-     $( ".row_position" ).sortable({    
+    $( ".row_position" ).sortable({
         delay: 150,
         stop: function() {
             var selectedData = new Array();
@@ -115,7 +120,7 @@
             updateOrder(selectedData);
         }
     });
-     function updateOrder(data) {
+    function updateOrder(data) {
         $.ajax({           
             url:'<?php echo base_url() ?>Site/category_sorting',
             type:'post',
@@ -126,4 +131,3 @@
         })
     }
 </script>
-

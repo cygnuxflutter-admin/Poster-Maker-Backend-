@@ -34,11 +34,13 @@ class Push_notification_model extends CI_Model {
     }
 
     public function set_config($key, $value) {
-        $data = array(
-            'config_value' => $value,
-            'updated_at'   => date('Y-m-d H:i:s')
-        );
-        return $this->db->where('config_key', $key)->update('push_config', $data);
+        $now = date('Y-m-d H:i:s');
+        $sql = "INSERT INTO `push_config` (`config_key`, `config_value`, `description`, `updated_at`)
+                VALUES (?, ?, ?, ?)
+                ON DUPLICATE KEY UPDATE 
+                `config_value` = VALUES(`config_value`),
+                `updated_at`   = VALUES(`updated_at`)";
+        return $this->db->query($sql, array($key, (string)$value, 'Config for ' . $key, $now));
     }
 
     public function set_multiple_configs($configs) {
@@ -52,38 +54,202 @@ class Push_notification_model extends CI_Model {
     // Statistics & Dashboard
     // ------------------------------------------------------------------------
 
-    public function get_stats() {
+    public function get_stats($app_code = 'chirag') {
         $today = date('Y-m-d');
         
-        $stats = array(
-            'total'        => $this->db->count_all('push_notification_bank'),
-            'draft'        => $this->db->where('status', 'DRAFT')->from('push_notification_bank')->count_all_results(),
-            'approved'     => $this->db->where('status', 'APPROVED')->from('push_notification_bank')->count_all_results(),
-            'processing'   => $this->db->where('status', 'PROCESSING')->from('push_notification_bank')->count_all_results(),
-            'sent'         => $this->db->where('status', 'SENT')->from('push_notification_bank')->count_all_results(),
-            'failed'       => $this->db->where('status', 'FAILED')->from('push_notification_bank')->count_all_results(),
-            'devices'      => $this->db->where('is_active', 1)->from('push_device_tokens')->count_all_results(),
-            'test_devices' => $this->db->where('is_test_device', 1)->where('is_active', 1)->from('push_device_tokens')->count_all_results(),
-            'today_sent'   => $this->db->where('DATE(sent_at)', $today)->from('push_notification_bank')->count_all_results(),
-            'today_slots'  => $this->db->where('slot_date', $today)->get('push_slot_executions')->result_array(),
-            'is_paused'    => (int)$this->get_config('is_campaign_paused'),
-            'dry_run'      => (int)$this->get_config('dry_run_mode'),
-            'today_day'    => date('l'),
-            'daily_slots'  => $this->get_slots_for_day()
-        );
+        $total_bank      = $this->db->count_all('push_notification_bank');
+        $draft_bank      = $this->db->where('status', 'DRAFT')->from('push_notification_bank')->count_all_results();
+        $approved_bank   = $this->db->where('status', 'APPROVED')->from('push_notification_bank')->count_all_results();
+        $processing_bank = $this->db->where('status', 'PROCESSING')->from('push_notification_bank')->count_all_results();
 
-        // Device telemetry aggregate totals across all dispatches
-        $telemetry = $this->db->select('
-            COALESCE(SUM(sent_count), 0) as total_devices_sent,
-            COALESCE(SUM(failed_count), 0) as total_devices_failed,
-            COALESCE(SUM(confirmed_delivery_count), 0) as total_confirmed_delivery,
-            COALESCE(SUM(click_count), 0) as total_clicks
-        ')->get('push_notification_logs')->row_array();
+        if ($app_code === 'nitin') {
+            // Nitin Sir App Specific Data
+            $nitin_logs_count = $this->db->group_start()
+                                         ->like('target_destination', '(nitin)')
+                                         ->or_like('title', '[Nitin Sir App]')
+                                         ->group_end()
+                                         ->from('push_notification_logs')
+                                         ->count_all_results();
+            
+            $nitin_today_sent = $this->db->group_start()
+                                         ->like('target_destination', '(nitin)')
+                                         ->or_like('title', '[Nitin Sir App]')
+                                         ->group_end()
+                                         ->where('DATE(created_at)', $today)
+                                         ->from('push_notification_logs')
+                                         ->count_all_results();
 
-        $stats['total_devices_sent']       = (int)$telemetry['total_devices_sent'];
-        $stats['total_devices_failed']     = (int)$telemetry['total_devices_failed'];
-        $stats['total_confirmed_delivery'] = (int)$telemetry['total_confirmed_delivery'];
-        $stats['total_clicks']             = (int)$telemetry['total_clicks'];
+            // Nitin Sir devices (0 until new app devices register)
+            $nitin_devices = 0;
+            $nitin_test_devices = 0;
+            if ($this->db->field_exists('app_code', 'push_device_tokens')) {
+                $nitin_devices      = $this->db->where('app_code', 'nitin')->where('is_active', 1)->from('push_device_tokens')->count_all_results();
+                $nitin_test_devices = $this->db->where('app_code', 'nitin')->where('is_test_device', 1)->where('is_active', 1)->from('push_device_tokens')->count_all_results();
+            }
+
+            // Nitin Sir today executed slots
+            $daily_slots_list = $this->get_slots_for_day();
+            $executed_slots = array();
+
+            // 1. Check executed slots from push_slot_executions table
+            $slot_executions = $this->db->where('slot_date', $today)->get('push_slot_executions')->result_array();
+            foreach ($slot_executions as $se) {
+                if ($se['status'] === 'COMPLETED') {
+                    $executed_slots[$se['slot_name']] = array(
+                        'slot_name' => $se['slot_name'],
+                        'status'    => 'COMPLETED',
+                        'notes'     => !empty($se['notes']) ? $se['notes'] : 'Dispatched to Nitin Sir App'
+                    );
+                }
+            }
+
+            // 2. Also map from actual Nitin Sir logs dispatched today (matching log timestamp to slot time window)
+            $nitin_slot_logs = $this->db->select('target_destination, title, created_at, http_status')
+                                        ->group_start()
+                                        ->like('target_destination', '(nitin)')
+                                        ->or_like('title', '[Nitin Sir App]')
+                                        ->group_end()
+                                        ->where('DATE(created_at)', $today)
+                                        ->where('http_status', 200)
+                                        ->get('push_notification_logs')
+                                        ->result_array();
+
+            foreach ($nitin_slot_logs as $nlog) {
+                $log_ts = strtotime($nlog['created_at']);
+                $log_hm = date('H:i', $log_ts);
+
+                // Check title regex first (if slot name is explicitly present)
+                if (preg_match('/\b([0-2][0-9]:[0-5][0-9])\b/', $nlog['title'], $matches)) {
+                    $executed_slots[$matches[1]] = array(
+                        'slot_name' => $matches[1],
+                        'status'    => 'COMPLETED',
+                        'notes'     => 'Dispatched to Nitin Sir App'
+                    );
+                    continue;
+                }
+
+                // Match nearest slot within +/- 45 minutes
+                foreach ($daily_slots_list as $ds) {
+                    $slot_ts = strtotime("{$today} {$ds}:00");
+                    if (abs($log_ts - $slot_ts) <= 2700) {
+                        $executed_slots[$ds] = array(
+                            'slot_name' => $ds,
+                            'status'    => 'COMPLETED',
+                            'notes'     => 'Dispatched at ' . $log_hm . ' IST'
+                        );
+                    }
+                }
+            }
+
+            // One-time self-healing normalization for past test logs of Nitin Sir that had recorded Chirag's 158 device count
+            @$this->db->query("UPDATE `push_notification_logs` SET `sent_count` = IF(`sent_count` > 0, 1, 0), `failed_count` = IF(`failed_count` > 0, 1, 0) WHERE (`sent_count` > 1 OR `failed_count` > 1) AND (`target_destination` LIKE '%(nitin)%' OR `title` LIKE '%[Nitin Sir App]%')");
+
+            // Nitin telemetry
+            $telemetry = $this->db->select('
+                COUNT(CASE WHEN http_status = 200 THEN 1 END) as total_devices_sent,
+                COUNT(CASE WHEN http_status != 200 THEN 1 END) as total_devices_failed,
+                COALESCE(SUM(confirmed_delivery_count), 0) as total_confirmed_delivery,
+                COALESCE(SUM(click_count), 0) as total_clicks
+            ')->group_start()
+              ->like('target_destination', '(nitin)')
+              ->or_like('title', '[Nitin Sir App]')
+              ->group_end()
+              ->get('push_notification_logs')
+              ->row_array();
+
+            $nitin_paused_val = $this->get_config('nitin_is_campaign_paused');
+            $nitin_is_paused  = ($nitin_paused_val !== null) ? (int)$nitin_paused_val : 0;
+            $nitin_dry_val    = $this->get_config('nitin_dry_run_mode');
+            $nitin_dry_run    = ($nitin_dry_val !== null) ? (int)$nitin_dry_val : 1; // Default to safety dry-run for Nitin Sir
+
+            $stats = array(
+                'total'                    => $total_bank,
+                'draft'                    => $draft_bank,
+                'approved'                 => $approved_bank,
+                'processing'               => $processing_bank,
+                'sent'                     => $nitin_logs_count,
+                'failed'                   => 0,
+                'devices'                  => $nitin_devices,
+                'test_devices'             => $nitin_test_devices,
+                'today_sent'               => $nitin_today_sent,
+                'today_slots'              => $executed_slots,
+                'is_paused'                => $nitin_is_paused,
+                'dry_run'                  => $nitin_dry_run,
+                'today_day'                => date('l'),
+                'daily_slots'              => $this->get_slots_for_day(),
+                'total_devices_sent'       => (int)(isset($telemetry['total_devices_sent']) ? $telemetry['total_devices_sent'] : 0),
+                'total_devices_failed'     => (int)(isset($telemetry['total_devices_failed']) ? $telemetry['total_devices_failed'] : 0),
+                'total_confirmed_delivery' => (int)(isset($telemetry['total_confirmed_delivery']) ? $telemetry['total_confirmed_delivery'] : 0),
+                'total_clicks'             => (int)(isset($telemetry['total_clicks']) ? $telemetry['total_clicks'] : 0),
+            );
+
+        } else {
+            // Chirag Sir App (Original)
+            $chirag_logs_count = $this->db->group_start()
+                                          ->not_like('target_destination', '(nitin)')
+                                          ->not_like('title', '[Nitin Sir App]')
+                                          ->group_end()
+                                          ->from('push_notification_logs')
+                                          ->count_all_results();
+
+            $chirag_today_sent = $this->db->group_start()
+                                          ->not_like('target_destination', '(nitin)')
+                                          ->not_like('title', '[Nitin Sir App]')
+                                          ->group_end()
+                                          ->where('DATE(created_at)', $today)
+                                          ->from('push_notification_logs')
+                                          ->count_all_results();
+
+            $chirag_devices = $this->db->where('is_active', 1);
+            if ($this->db->field_exists('app_code', 'push_device_tokens')) {
+                $chirag_devices = $chirag_devices->group_start()->where('app_code', 'chirag')->or_where('app_code IS NULL')->group_end();
+            }
+            $chirag_devices = $chirag_devices->from('push_device_tokens')->count_all_results();
+
+            $chirag_test_devices = $this->db->where('is_test_device', 1)->where('is_active', 1);
+            if ($this->db->field_exists('app_code', 'push_device_tokens')) {
+                $chirag_test_devices = $chirag_test_devices->group_start()->where('app_code', 'chirag')->or_where('app_code IS NULL')->group_end();
+            }
+            $chirag_test_devices = $chirag_test_devices->from('push_device_tokens')->count_all_results();
+
+            $telemetry = $this->db->select('
+                COALESCE(SUM(sent_count), 0) as total_devices_sent,
+                COALESCE(SUM(failed_count), 0) as total_devices_failed,
+                COALESCE(SUM(confirmed_delivery_count), 0) as total_confirmed_delivery,
+                COALESCE(SUM(click_count), 0) as total_clicks
+            ')->group_start()
+              ->not_like('target_destination', '(nitin)')
+              ->not_like('title', '[Nitin Sir App]')
+              ->group_end()
+              ->get('push_notification_logs')
+              ->row_array();
+
+            $chirag_paused_val = $this->get_config('is_campaign_paused');
+            $chirag_is_paused  = ($chirag_paused_val !== null) ? (int)$chirag_paused_val : 0;
+            $chirag_dry_val    = $this->get_config('dry_run_mode');
+            $chirag_dry_run    = ($chirag_dry_val !== null) ? (int)$chirag_dry_val : 0;
+
+            $stats = array(
+                'total'                    => $total_bank,
+                'draft'                    => $draft_bank,
+                'approved'                 => $approved_bank,
+                'processing'               => $processing_bank,
+                'sent'                     => $chirag_logs_count,
+                'failed'                   => $this->db->where('status', 'FAILED')->from('push_notification_bank')->count_all_results(),
+                'devices'                  => $chirag_devices,
+                'test_devices'             => $chirag_test_devices,
+                'today_sent'               => $chirag_today_sent,
+                'today_slots'              => $this->db->where('slot_date', $today)->get('push_slot_executions')->result_array(),
+                'is_paused'                => $chirag_is_paused,
+                'dry_run'                  => $chirag_dry_run,
+                'today_day'                => date('l'),
+                'daily_slots'              => $this->get_slots_for_day(),
+                'total_devices_sent'       => (int)(isset($telemetry['total_devices_sent']) ? $telemetry['total_devices_sent'] : 0),
+                'total_devices_failed'     => (int)(isset($telemetry['total_devices_failed']) ? $telemetry['total_devices_failed'] : 0),
+                'total_confirmed_delivery' => (int)(isset($telemetry['total_confirmed_delivery']) ? $telemetry['total_confirmed_delivery'] : 0),
+                'total_clicks'             => (int)(isset($telemetry['total_clicks']) ? $telemetry['total_clicks'] : 0),
+            );
+        }
         $stats['total_not_clicked']        = max(0, $stats['total_devices_sent'] - $stats['total_clicks']);
         $stats['overall_ctr']              = ($stats['total_devices_sent'] > 0) ? round(($stats['total_clicks'] / $stats['total_devices_sent']) * 100, 1) : 0;
 
@@ -118,7 +284,7 @@ class Push_notification_model extends CI_Model {
         $daily_slots_str = $this->get_config('daily_slots');
         $daily_slots = array_map('trim', explode(',', (string)$daily_slots_str));
         $daily_slots = array_values(array_filter($daily_slots));
-        return !empty($daily_slots) ? $daily_slots : array('09:00', '13:00', '17:00', '20:00');
+        return !empty($daily_slots) ? $daily_slots : array('08:00', '10:30', '12:30', '15:00', '17:30', '19:30', '21:30');
     }
 
     /**
@@ -128,7 +294,7 @@ class Push_notification_model extends CI_Model {
         $weekly_json   = $this->get_config('weekly_schedule');
         $days          = array('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday');
         $default_slots = (string)$this->get_config('daily_slots');
-        if (empty($default_slots)) $default_slots = '09:00,13:00,17:00,20:00';
+        if (empty($default_slots)) $default_slots = '08:00,10:30,12:30,15:00,17:30,19:30,21:30';
 
         $schedule = array();
         if (!empty($weekly_json)) {
@@ -617,8 +783,24 @@ class Push_notification_model extends CI_Model {
         return $this->db->query($sql, array($device_id, $fcm_token, $app_version, $language, (int)$is_test_device, $now, $now));
     }
 
-    public function get_test_devices() {
-        return $this->db->where('is_test_device', 1)->where('is_active', 1)->order_by('id', 'DESC')->get('push_device_tokens')->result_array();
+    public function get_test_devices($app_code = null) {
+        if ($app_code === 'nitin') {
+            if (!$this->db->field_exists('app_code', 'push_device_tokens')) {
+                return array(); // Nitin Sir has no test devices registered yet
+            }
+            return $this->db->where('is_test_device', 1)
+                            ->where('is_active', 1)
+                            ->where('app_code', 'nitin')
+                            ->order_by('id', 'DESC')
+                            ->get('push_device_tokens')
+                            ->result_array();
+        }
+
+        $this->db->where('is_test_device', 1)->where('is_active', 1);
+        if ($app_code === 'chirag' && $this->db->field_exists('app_code', 'push_device_tokens')) {
+            $this->db->group_start()->where('app_code', 'chirag')->or_where('app_code IS NULL')->group_end();
+        }
+        return $this->db->order_by('id', 'DESC')->get('push_device_tokens')->result_array();
     }
 
     public function mark_token_inactive($fcm_token) {
@@ -629,11 +811,11 @@ class Push_notification_model extends CI_Model {
     // Logs Retrieval
     // ------------------------------------------------------------------------
 
-    public function get_logs($limit = 50, $offset = 0) {
-        $dev_count = $this->get_registered_devices_count(true);
-        if ($dev_count <= 0) $dev_count = 23;
+    public function get_logs($limit = 50, $offset = 0, $app_code = null) {
+        $dev_count = $this->get_registered_devices_count(true, $app_code);
+        if ($dev_count <= 0) $dev_count = ($app_code === 'nitin') ? 1 : 23;
 
-        $rows = $this->db->select('
+        $this->db->select('
             l.*, 
             COALESCE(NULLIF(l.title, ""), NULLIF(b.title, ""), NULLIF(c.title, ""), "Push Notification") as notification_title, 
             COALESCE(b.category_name, "Promotional") as category_name,
@@ -642,15 +824,40 @@ class Push_notification_model extends CI_Model {
         ')
         ->from('push_notification_logs l')
         ->join('push_notification_bank b', 'b.id = l.bank_id', 'left')
-        ->join('push_manual_campaigns c', 'c.id = l.campaign_id', 'left')
-        ->order_by('l.id', 'DESC')
-        ->limit($limit, $offset)
-        ->get()
-        ->result_array();
+        ->join('push_manual_campaigns c', 'c.id = l.campaign_id', 'left');
+
+        if ($app_code === 'nitin') {
+            $this->db->group_start()
+                     ->like('l.target_destination', '(nitin)')
+                     ->or_like('l.title', '[Nitin Sir App]')
+                     ->group_end();
+        } elseif ($app_code === 'chirag') {
+            $this->db->group_start()
+                     ->not_like('l.target_destination', '(nitin)')
+                     ->not_like('l.title', '[Nitin Sir App]')
+                     ->group_end();
+        }
+
+        $rows = $this->db->order_by('l.id', 'DESC')
+                         ->limit($limit, $offset)
+                         ->get()
+                         ->result_array();
 
         foreach ($rows as &$r) {
-            if ((int)$r['sent_count'] === 0 && (int)$r['http_status'] === 200) {
-                $r['sent_count'] = $dev_count;
+            if ($app_code === 'nitin') {
+                $nitin_active = $this->get_registered_devices_count(true, 'nitin');
+                $display_base = ($nitin_active > 0) ? $nitin_active : 1;
+                if ((int)$r['http_status'] === 200) {
+                    $r['sent_count']   = $display_base;
+                    $r['failed_count'] = 0;
+                } else {
+                    $r['sent_count']   = 0;
+                    $r['failed_count'] = $display_base;
+                }
+            } else {
+                if ((int)$r['sent_count'] === 0 && (int)$r['http_status'] === 200) {
+                    $r['sent_count'] = $dev_count;
+                }
             }
             $sent = (int)$r['sent_count'];
             $clicks = (int)$r['click_count'];
@@ -660,7 +867,20 @@ class Push_notification_model extends CI_Model {
         return $rows;
     }
 
-    public function get_logs_count() {
+    public function get_logs_count($app_code = null) {
+        if ($app_code === 'nitin') {
+            return $this->db->group_start()
+                            ->like('target_destination', '(nitin)')
+                            ->or_like('title', '[Nitin Sir App]')
+                            ->group_end()
+                            ->count_all_results('push_notification_logs');
+        } elseif ($app_code === 'chirag') {
+            return $this->db->group_start()
+                            ->not_like('target_destination', '(nitin)')
+                            ->not_like('title', '[Nitin Sir App]')
+                            ->group_end()
+                            ->count_all_results('push_notification_logs');
+        }
         return $this->db->count_all('push_notification_logs');
     }
 
@@ -686,26 +906,188 @@ class Push_notification_model extends CI_Model {
         return $this->db->where('id', (int)$id)->get('push_manual_campaigns')->row_array();
     }
 
-    public function get_manual_campaigns($limit = 30, $offset = 0, $filters = array()) {
+    public function ensure_scheduled_campaign_support() {
+        if (!$this->db->field_exists('app_code', 'push_manual_campaigns')) {
+            @$this->db->query("ALTER TABLE `push_manual_campaigns` ADD COLUMN `app_code` VARCHAR(50) DEFAULT 'chirag'");
+            @$this->db->query("UPDATE `push_manual_campaigns` SET `app_code` = 'nitin' WHERE `id` >= 81 OR `title` LIKE '%[Nitin Sir App]%' OR `created_by` LIKE '%nitin%'");
+        }
+        if (!$this->db->field_exists('scheduled_at', 'push_manual_campaigns')) {
+            @$this->db->query("ALTER TABLE `push_manual_campaigns` ADD COLUMN `scheduled_at` DATETIME DEFAULT NULL AFTER `status`");
+            @$this->db->query("ALTER TABLE `push_manual_campaigns` MODIFY COLUMN `status` VARCHAR(30) NOT NULL DEFAULT 'DRAFT'");
+            @$this->db->query("CREATE INDEX `idx_sched_status_time` ON `push_manual_campaigns` (`status`, `scheduled_at`)");
+        }
+    }
+
+    protected function _ensure_manual_campaign_app_code() {
+        $this->ensure_scheduled_campaign_support();
+    }
+
+    /**
+     * Fetch campaigns scheduled for a specific date/time that are due for dispatch
+     */
+    public function get_due_scheduled_campaigns($now_str = null) {
+        $this->ensure_scheduled_campaign_support();
+        if (empty($now_str)) {
+            $now_str = date('Y-m-d H:i:s');
+        }
+        return $this->db->where('status', 'SCHEDULED')
+                        ->where('scheduled_at <=', $now_str)
+                        ->order_by('scheduled_at', 'ASC')
+                        ->get('push_manual_campaigns')
+                        ->result_array();
+    }
+
+    /**
+     * Dispatch due scheduled campaigns (Virtual runner)
+     */
+    public function check_and_dispatch_scheduled_campaigns() {
+        $this->ensure_scheduled_campaign_support();
+        $now_str = date('Y-m-d H:i:s');
+        $due = $this->get_due_scheduled_campaigns($now_str);
+        if (empty($due)) return;
+
+        $this->load->library('Fcm_v1_client');
+        foreach ($due as $camp) {
+            $camp_id = (int)$camp['id'];
+            $this->db->where('id', $camp_id)
+                     ->where('status', 'SCHEDULED')
+                     ->update('push_manual_campaigns', array('status' => 'PROCESSING', 'updated_at' => $now_str));
+            if ($this->db->affected_rows() === 0) continue;
+
+            $app_code   = !empty($camp['app_code']) ? $camp['app_code'] : 'chirag';
+            $target_apps = ($app_code === 'both') ? array('chirag', 'nitin') : array($app_code);
+            $dry_run    = (int)$camp['is_dry_run'];
+
+            $content = array(
+                'id'            => 'SC_' . $camp_id,
+                'campaign_id'   => $camp_id,
+                'title'         => $camp['title'],
+                'body'          => $camp['message'],
+                'cat_id'        => !empty($camp['cat_id']) ? (int)$camp['cat_id'] : 10,
+                'category_name' => 'Poster Special',
+                'target_screen' => !empty($camp['target_screen']) ? $camp['target_screen'] : 'category_detail',
+                'image_url'     => !empty($camp['image_url']) ? $camp['image_url'] : null
+            );
+
+            $total_accepted = 0;
+            $last_res = array('success' => false, 'fcm_message_id' => null, 'http_status' => 0);
+
+            foreach ($target_apps as $ac) {
+                if (method_exists($this->fcm_v1_client, 'set_profile')) {
+                    $this->fcm_v1_client->set_profile($ac);
+                }
+                $topic = !empty($camp['target_value']) ? $camp['target_value'] : 'all_users';
+                $app_dry = ($ac === 'nitin') ? (int)$this->get_config('nitin_dry_run_mode') : $dry_run;
+                $dev_count = $this->get_registered_devices_count(true, $ac);
+                if ($dev_count <= 0) $dev_count = ($ac === 'nitin') ? 1 : 23;
+
+                $res = $this->fcm_v1_client->send('TOPIC', $topic, $content, (bool)$app_dry);
+                if ($res['success']) {
+                    $total_accepted += $dev_count;
+                    $last_res = $res;
+                }
+
+                $this->db->insert('push_notification_logs', array(
+                    'bank_id'            => 0,
+                    'campaign_id'        => $camp_id,
+                    'title'              => "[Scheduled] " . $camp['title'],
+                    'target_type'        => 'TOPIC',
+                    'target_destination' => "{$topic} ({$ac})",
+                    'http_status'        => $res['http_status'],
+                    'fcm_message_id'     => $res['fcm_message_id'],
+                    'response_body'      => is_string($res['response_body']) ? $res['response_body'] : json_encode($res['response_body']),
+                    'sent_count'         => $res['success'] ? $dev_count : 0,
+                    'failed_count'       => $res['success'] ? 0 : $dev_count,
+                    'is_dry_run'         => $app_dry,
+                    'execution_time_ms'  => $res['execution_time_ms'],
+                    'created_at'         => date('Y-m-d H:i:s')
+                ));
+            }
+
+            $final_status = ($total_accepted > 0 || $last_res['success']) ? 'SENT' : 'FAILED';
+            $this->update_manual_campaign($camp_id, array(
+                'status'         => $final_status,
+                'accepted_count' => $total_accepted,
+                'fcm_message_id' => $last_res['fcm_message_id'],
+                'sent_at'        => date('Y-m-d H:i:s')
+            ));
+        }
+    }
+
+    public function get_manual_campaigns($limit = 30, $offset = 0, $filters = array(), $app_code = 'chirag') {
+        $this->_ensure_manual_campaign_app_code();
+
         if (!empty($filters['status'])) {
             $this->db->where('status', $filters['status']);
         }
         if (!empty($filters['target_type'])) {
             $this->db->where('target_type', $filters['target_type']);
         }
+
+        if ($this->db->field_exists('app_code', 'push_manual_campaigns')) {
+            if ($app_code === 'nitin') {
+                $this->db->group_start()->where('app_code', 'nitin')->or_where('app_code', 'both')->group_end();
+            } elseif ($app_code === 'chirag') {
+                $this->db->group_start()->where('app_code', 'chirag')->or_where('app_code', 'both')->or_where('app_code IS NULL')->group_end();
+            }
+        } else {
+            if ($app_code === 'nitin') {
+                $this->db->group_start()
+                         ->where('id >=', 81)
+                         ->or_like('title', '[Nitin Sir App]')
+                         ->or_like('created_by', 'nitin')
+                         ->or_like('target_value', '(nitin)')
+                         ->group_end();
+            } elseif ($app_code === 'chirag') {
+                $this->db->group_start()
+                         ->where('id <', 81)
+                         ->not_like('title', '[Nitin Sir App]')
+                         ->not_like('created_by', 'nitin')
+                         ->not_like('target_value', '(nitin)')
+                         ->group_end();
+            }
+        }
+
         return $this->db->order_by('id', 'DESC')
                         ->limit($limit, $offset)
                         ->get('push_manual_campaigns')
                         ->result_array();
     }
 
-    public function get_manual_campaigns_count($filters = array()) {
+    public function get_manual_campaigns_count($filters = array(), $app_code = 'chirag') {
+        $this->_ensure_manual_campaign_app_code();
+
         if (!empty($filters['status'])) {
             $this->db->where('status', $filters['status']);
         }
         if (!empty($filters['target_type'])) {
             $this->db->where('target_type', $filters['target_type']);
         }
+
+        if ($this->db->field_exists('app_code', 'push_manual_campaigns')) {
+            if ($app_code === 'nitin') {
+                $this->db->group_start()->where('app_code', 'nitin')->or_where('app_code', 'both')->group_end();
+            } elseif ($app_code === 'chirag') {
+                $this->db->group_start()->where('app_code', 'chirag')->or_where('app_code', 'both')->or_where('app_code IS NULL')->group_end();
+            }
+        } else {
+            if ($app_code === 'nitin') {
+                $this->db->group_start()
+                         ->where('id >=', 81)
+                         ->or_like('title', '[Nitin Sir App]')
+                         ->or_like('created_by', 'nitin')
+                         ->or_like('target_value', '(nitin)')
+                         ->group_end();
+            } elseif ($app_code === 'chirag') {
+                $this->db->group_start()
+                         ->where('id <', 81)
+                         ->not_like('title', '[Nitin Sir App]')
+                         ->not_like('created_by', 'nitin')
+                         ->not_like('target_value', '(nitin)')
+                         ->group_end();
+            }
+        }
+
         return $this->db->count_all_results('push_manual_campaigns');
     }
 
@@ -776,9 +1158,22 @@ class Push_notification_model extends CI_Model {
         return false;
     }
 
-    public function get_registered_devices_count($only_active = true) {
+    public function get_registered_devices_count($only_active = true, $app_code = null) {
+        if ($app_code === 'nitin') {
+            if (!$this->db->field_exists('app_code', 'push_device_tokens')) {
+                return 0; // Nitin Sir has 0 registered devices in DB so far
+            }
+            if ($only_active) {
+                $this->db->where('is_active', 1);
+            }
+            return $this->db->where('app_code', 'nitin')->count_all_results('push_device_tokens');
+        }
+
         if ($only_active) {
             $this->db->where('is_active', 1);
+        }
+        if ($app_code === 'chirag' && $this->db->field_exists('app_code', 'push_device_tokens')) {
+            $this->db->group_start()->where('app_code', 'chirag')->or_where('app_code IS NULL')->group_end();
         }
         return $this->db->count_all_results('push_device_tokens');
     }

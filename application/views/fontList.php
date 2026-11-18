@@ -14,14 +14,12 @@
   <div class="page-header">
     <div class="wrap-title">
       <div class="icon">
-        <span class="ico-layout-7"></span>
+        <i class="fa-solid fa-font"></i>
     </div>
     <h1>Font List <small><?php echo ucfirst($this->session->userdata('poster_sess_user_name'));?>: <span class="cgreen">Active Now </span><span class="cgreen ico-circle" style="font-size: 8px;"></span></small></h1>
 </div>
 <ul class="breadcrumb">
-  <li>
-    <a href="/">Home</a>
-</li>
+  <li><a href="<?php echo base_url(); ?>site">Home</a></li>
 <li class="active">Font List</li>
 </ul>
 <div class="clear"></div>
@@ -30,7 +28,7 @@
 <div class="row">
     <div class="block">
       <div class="head blue">
-        <div class="icon"><span class="ico-layout-9"></span></div>
+        <div class="icon"><i class="fa-solid fa-list"></i></div>
         <h2>Font List</h2>
   </div> 
 

@@ -22,11 +22,12 @@ defined('BASEPATH') OR exit('No direct script access allowed');
 | If you need to allow multiple domains, remember that this file is still
 | a PHP script and you can easily do that on your own.
 |
+*/
 if (isset($_SERVER['HTTP_HOST'])) {
     $base_url = (isset($_SERVER['HTTPS']) && $_SERVER['HTTPS'] === 'on' ? "https" : "http") . "://" . $_SERVER['HTTP_HOST'];
     $script_dir = str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME']));
-    $base_url .= rtrim($script_dir, '/\\') . '/';
-    $config['base_url'] = $base_url;
+    $script_dir = ($script_dir === '/' || $script_dir === '\\') ? '' : rtrim($script_dir, '/\\');
+    $config['base_url'] = rtrim($base_url, '/') . $script_dir . '/';
 } else {
     $config['base_url'] = 'http://localhost:8080/';
 }

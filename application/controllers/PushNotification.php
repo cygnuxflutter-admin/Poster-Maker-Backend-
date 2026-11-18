@@ -19,6 +19,43 @@ class PushNotification extends CI_Controller {
         if (isset($this->db)) {
             $this->db->simple_query("SET NAMES 'utf8mb4' COLLATE 'utf8mb4_unicode_ci'");
         }
+
+        // Initialize active app profile from session
+        $this->_get_active_app();
+    }
+
+    /**
+     * Helper to get and enforce active app profile ('chirag' or 'nitin')
+     */
+    private function _get_active_app() {
+        $active = $this->session->userdata('active_push_app');
+        if (!$active || !in_array($active, array('chirag', 'nitin'))) {
+            $active = 'chirag';
+            $this->session->set_userdata('active_push_app', 'chirag');
+        }
+        if (isset($this->fcm_v1_client) && method_exists($this->fcm_v1_client, 'set_profile')) {
+            $this->fcm_v1_client->set_profile($active);
+        }
+        return $active;
+    }
+
+    /**
+     * Switch Active App Workspace (Chirag Sir App <-> Nitin Sir App)
+     */
+    public function switch_app($app = 'chirag') {
+        $app = strtolower(trim((string)$app));
+        if (!in_array($app, array('chirag', 'nitin'))) {
+            $app = 'chirag';
+        }
+        $this->session->set_userdata('active_push_app', $app);
+        if (isset($this->fcm_v1_client) && method_exists($this->fcm_v1_client, 'set_profile')) {
+            $this->fcm_v1_client->set_profile($app);
+        }
+        $label = ($app === 'nitin') ? 'Nitin Sir App' : 'Chirag Sir App';
+        $this->session->set_flashdata('success', "Active workspace switched to: {$label}");
+
+        $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification');
+        redirect($ref);
     }
 
     /**
@@ -27,11 +64,16 @@ class PushNotification extends CI_Controller {
     public function index() {
         // Automatic virtual cron fallback: if a slot is due right now and pending, dispatch it immediately!
         $this->Push_notification_model->check_and_dispatch_due_slot();
+        $this->Push_notification_model->check_and_dispatch_scheduled_campaigns();
 
-        $data['stats'] = $this->Push_notification_model->get_stats();
-        $data['recent_logs'] = $this->Push_notification_model->get_logs(10, 0);
-        $data['has_creds'] = $this->fcm_v1_client->has_valid_credentials();
-        $data['creds_path'] = $this->fcm_v1_client->get_credentials_path();
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = (isset($this->fcm_v1_client) && method_exists($this->fcm_v1_client, 'get_project_id')) ? $this->fcm_v1_client->get_project_id() : 'poster---text-art';
+        $data['stats']             = $this->Push_notification_model->get_stats($data['active_app']);
+        $data['recent_logs']       = $this->Push_notification_model->get_logs(10, 0, $data['active_app']);
+        $data['has_creds']         = $this->fcm_v1_client->has_valid_credentials();
+        $data['creds_path']        = $this->fcm_v1_client->get_credentials_path();
+        $data['chirag_has_creds']  = method_exists($this->fcm_v1_client, 'has_valid_credentials') ? $this->fcm_v1_client->has_valid_credentials('chirag') : true;
+        $data['nitin_has_creds']   = method_exists($this->fcm_v1_client, 'has_valid_credentials') ? $this->fcm_v1_client->has_valid_credentials('nitin') : false;
 
         $this->load->view('header');
         $this->load->view('sidebar');
@@ -59,6 +101,8 @@ class PushNotification extends CI_Controller {
             'scheduled_slot' => $slot
         );
 
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
         $data['items'] = $this->Push_notification_model->get_bank_items($filters, $limit, $offset);
         $data['total'] = $this->Push_notification_model->get_bank_count($filters);
         $data['page']  = $page;
@@ -109,10 +153,20 @@ class PushNotification extends CI_Controller {
      * Test Notification Interface
      */
     public function test_send() {
-        $data['test_devices'] = $this->Push_notification_model->get_test_devices();
-        $data['dry_run']      = (int)$this->Push_notification_model->get_config('dry_run_mode');
-        $data['has_creds']    = $this->fcm_v1_client->has_valid_credentials();
-        $data['default_topic']= $this->Push_notification_model->get_config('fcm_topic');
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
+        $data['test_devices']      = $this->Push_notification_model->get_test_devices($data['active_app']);
+        
+        if ($data['active_app'] === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $data['dry_run'] = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $data['dry_run'] = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
+
+        $data['has_creds']         = $this->fcm_v1_client->has_valid_credentials();
+        $default_topic             = $this->Push_notification_model->get_config('fcm_topic');
+        $data['default_topic']     = !empty($default_topic) ? $default_topic : 'all_users';
 
         $this->load->view('header');
         $this->load->view('sidebar');
@@ -124,6 +178,13 @@ class PushNotification extends CI_Controller {
      * Handle Test Notification Dispatch
      */
     public function do_test_send() {
+        $target_app  = $this->input->post('target_app');
+        if (!empty($target_app) && in_array($target_app, array('chirag', 'nitin'))) {
+            $this->fcm_v1_client->set_profile($target_app);
+        } else {
+            $target_app = $this->_get_active_app();
+        }
+
         $target_type = $this->input->post('target_type'); // 'TOKEN' or 'TOPIC'
         $destination = trim($this->input->post('destination'));
         $title       = trim($this->input->post('title'));
@@ -131,7 +192,13 @@ class PushNotification extends CI_Controller {
         $cat_id      = (int)$this->input->post('cat_id');
         $image_url   = trim($this->input->post('image_url'));
         $force_live   = $this->input->post('force_live') ? 1 : 0;
-        $system_dry   = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        
+        if ($target_app === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $system_dry = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $system_dry = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
         // If system is in LIVE mode ($system_dry == 0) or admin checked force_live, run live (is_dry = false)
         $is_dry_send  = ($system_dry === 0 || $force_live === 1) ? false : true;
 
@@ -172,9 +239,11 @@ class PushNotification extends CI_Controller {
         $limit  = 50;
         $offset = ($page - 1) * $limit;
 
-        $data['stats'] = $this->Push_notification_model->get_stats();
-        $data['logs']  = $this->Push_notification_model->get_logs($limit, $offset);
-        $data['total'] = $this->Push_notification_model->get_logs_count();
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
+        $data['stats'] = $this->Push_notification_model->get_stats($data['active_app']);
+        $data['logs']  = $this->Push_notification_model->get_logs($limit, $offset, $data['active_app']);
+        $data['total'] = $this->Push_notification_model->get_logs_count($data['active_app']);
         $data['page']  = $page;
         $data['pages'] = ceil($data['total'] / $limit);
 
@@ -188,9 +257,23 @@ class PushNotification extends CI_Controller {
      * Settings Page
      */
     public function settings() {
+        $optimal_7_slots = '08:00,10:30,12:30,15:00,17:30,19:30,21:30';
+        $current_slots = $this->Push_notification_model->get_config('daily_slots');
+        if (empty($current_slots) || $current_slots === '09:00,13:00,17:00,20:00') {
+            $days = array('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday');
+            $weekly = array();
+            foreach ($days as $d) {
+                $weekly[$d] = $optimal_7_slots;
+            }
+            $this->Push_notification_model->set_config('daily_slots', $optimal_7_slots);
+            $this->Push_notification_model->set_config('weekly_schedule', json_encode($weekly));
+        }
+
         $configs = $this->Push_notification_model->get_config();
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
         $data['configs'] = array_merge(array(
-            'daily_slots'        => '09:00,13:00,17:00,20:00',
+            'daily_slots'        => $optimal_7_slots,
             'fcm_topic'          => 'all_users',
             'max_retries'        => '3',
             'dry_run_mode'       => '1',
@@ -211,38 +294,53 @@ class PushNotification extends CI_Controller {
      * Save Settings & Sunday-Saturday Weekly Schedule
      */
     public function save_settings() {
-        $slots       = $this->input->post('daily_slots');
         $topic       = trim($this->input->post('fcm_topic'));
         $dry_run     = $this->input->post('dry_run_mode') ? '1' : '0';
         $is_paused   = $this->input->post('is_campaign_paused') ? '1' : '0';
         $max_retries = (int)$this->input->post('max_retries');
 
-        // Sunday to Saturday schedule parsing
+        // Parse Sunday to Saturday schedule (RTO-style comma separated or dynamic array)
         $days = array('sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday');
         $weekly = array();
         foreach ($days as $d) {
-            $s1 = trim((string)$this->input->post('slot_' . $d . '_1'));
-            $s2 = trim((string)$this->input->post('slot_' . $d . '_2'));
-            $s3 = trim((string)$this->input->post('slot_' . $d . '_3'));
-            $s4 = trim((string)$this->input->post('slot_' . $d . '_4'));
-            
-            $slot_parts = array_values(array_filter(array($s1, $s2, $s3, $s4)));
-            if (!empty($slot_parts)) {
-                $weekly[$d] = implode(',', $slot_parts);
+            $w_val = trim((string)$this->input->post('weekly_' . $d));
+            if (!empty($w_val)) {
+                $parts = array_map('trim', explode(',', $w_val));
+                $clean_p = array();
+                foreach ($parts as $p) {
+                    $p = trim($p);
+                    if (preg_match('/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/', $p)) {
+                        $sp = explode(':', $p);
+                        $clean_p[] = sprintf('%02d:%02d', (int)$sp[0], (int)$sp[1]);
+                    }
+                }
+                $clean_p = array_values(array_unique($clean_p));
+                sort($clean_p);
+                $weekly[$d] = !empty($clean_p) ? implode(',', $clean_p) : '09:00,11:00,13:00,15:00,17:00,19:00,21:00';
             } else {
-                $val = trim((string)$this->input->post('weekly_' . $d));
-                if (!empty($val)) {
-                    $parts = array_map('trim', explode(',', $val));
-                    $parts = array_values(array_filter($parts));
-                    $weekly[$d] = implode(',', $parts);
+                $day_slots = $this->input->post('slots_' . $d);
+                if (is_array($day_slots)) {
+                    $clean_day = array();
+                    foreach ($day_slots as $st) {
+                        $st = trim((string)$st);
+                        if (preg_match('/^([01]?[0-9]|2[0-3]):[0-5][0-9]$/', $st)) {
+                            $sp = explode(':', $st);
+                            $clean_day[] = sprintf('%02d:%02d', (int)$sp[0], (int)$sp[1]);
+                        }
+                    }
+                    $clean_day = array_values(array_unique($clean_day));
+                    sort($clean_day);
+                    $weekly[$d] = !empty($clean_day) ? implode(',', $clean_day) : '09:00,11:00,13:00,15:00,17:00,19:00,21:00';
                 } else {
-                    $weekly[$d] = '09:00,13:00,17:00,20:00';
+                    $weekly[$d] = '09:00,11:00,13:00,15:00,17:00,19:00,21:00';
                 }
             }
         }
 
+        $daily_slots_val = !empty($weekly['monday']) ? $weekly['monday'] : '09:00,11:00,13:00,15:00,17:00,19:00,21:00';
+
         $configs = array(
-            'daily_slots'        => !empty($weekly['monday']) ? $weekly['monday'] : ($slots ? $slots : '09:00,13:00,17:00,20:00'),
+            'daily_slots'        => $daily_slots_val,
             'weekly_schedule'    => json_encode($weekly),
             'fcm_topic'          => $topic ? $topic : 'all_users',
             'dry_run_mode'       => $dry_run,
@@ -251,7 +349,7 @@ class PushNotification extends CI_Controller {
         );
 
         $this->Push_notification_model->set_multiple_configs($configs);
-        $this->session->set_flashdata('success', 'Settings and Sunday-to-Saturday schedule updated successfully.');
+        $this->session->set_flashdata('success', 'Settings and weekly schedule updated successfully.');
         redirect('PushNotification/settings');
     }
 
@@ -266,24 +364,36 @@ class PushNotification extends CI_Controller {
     }
 
     /**
-     * One-click toggle for Emergency Pause
+     * One-click toggle for Emergency Pause (App-Specific)
      */
     public function toggle_pause() {
-        $current = (int)$this->Push_notification_model->get_config('is_campaign_paused');
+        $active_app = $this->_get_active_app();
+        $config_key = ($active_app === 'nitin') ? 'nitin_is_campaign_paused' : 'is_campaign_paused';
+        $current_val = $this->Push_notification_model->get_config($config_key);
+        $current = ($current_val !== null) ? (int)$current_val : 0;
         $new_val = ($current === 1) ? '0' : '1';
-        $this->Push_notification_model->set_config('is_campaign_paused', $new_val);
-        $this->session->set_flashdata('success', ($new_val === '1') ? 'Automated campaign has been PAUSED.' : 'Automated campaign has been RESUMED.');
+        $this->Push_notification_model->set_config($config_key, $new_val);
+        $app_name = ($active_app === 'nitin') ? 'Nitin Sir App' : 'Chirag Sir App';
+        $this->session->set_flashdata('success', ($new_val === '1') ? "Automated campaign PAUSED for {$app_name}." : "Automated campaign RESUMED for {$app_name}.");
         redirect('PushNotification');
     }
 
     /**
-     * One-click toggle for Dry-Run Mode
+     * One-click toggle for Dry-Run Mode (App-Specific)
      */
     public function toggle_dry_run() {
-        $current = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        $active_app = $this->_get_active_app();
+        $config_key = ($active_app === 'nitin') ? 'nitin_dry_run_mode' : 'dry_run_mode';
+        $current_val = $this->Push_notification_model->get_config($config_key);
+        if ($current_val === null) {
+            $current = ($active_app === 'nitin') ? 1 : 0;
+        } else {
+            $current = (int)$current_val;
+        }
         $new_val = ($current === 1) ? '0' : '1';
-        $this->Push_notification_model->set_config('dry_run_mode', $new_val);
-        $this->session->set_flashdata('success', ($new_val === '1') ? 'Safety DRY-RUN mode ENABLED.' : 'LIVE transmission mode ENABLED.');
+        $this->Push_notification_model->set_config($config_key, $new_val);
+        $app_name = ($active_app === 'nitin') ? 'Nitin Sir App' : 'Chirag Sir App';
+        $this->session->set_flashdata('success', ($new_val === '1') ? "Safety DRY-RUN mode ENABLED for {$app_name}." : "LIVE transmission mode ENABLED for {$app_name}.");
         redirect('PushNotification');
     }
 
@@ -296,6 +406,8 @@ class PushNotification extends CI_Controller {
             return;
         }
 
+        $active_app = $this->_get_active_app();
+
         if (empty($slot_name)) {
             // Pick current nearest slot
             $hour = (int)date('H');
@@ -305,7 +417,12 @@ class PushNotification extends CI_Controller {
             else $slot_name = '20:00';
         }
 
-        $dry_run = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        if ($active_app === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $dry_run = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $dry_run = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
         $topic   = $this->Push_notification_model->get_config('fcm_topic');
         if (empty($topic)) $topic = 'all_users';
 
@@ -417,10 +534,22 @@ class PushNotification extends CI_Controller {
      * Manual Push Composer Interface
      */
     public function composer($draft_id = null) {
+        if ($draft_id) {
+            redirect('PushNotification/edit/' . (int)$draft_id);
+            return;
+        }
+
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
         $data['categories']   = $this->db->select('cat_id, cat_name')->order_by('cat_name', 'ASC')->get('category')->result_array();
-        $data['test_devices'] = $this->Push_notification_model->get_test_devices();
+        $data['test_devices'] = $this->Push_notification_model->get_test_devices($data['active_app']);
         $data['total_active_tokens'] = $this->Push_notification_model->get_registered_devices_count(true);
-        $data['dry_run']      = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        if ($data['active_app'] === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $data['dry_run'] = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $data['dry_run'] = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
         $data['default_topic']= $this->Push_notification_model->get_config('fcm_topic');
         $data['has_creds']    = $this->fcm_v1_client->has_valid_credentials();
         
@@ -466,6 +595,9 @@ class PushNotification extends CI_Controller {
             'is_dry_run'    => 1,
             'created_by'    => $this->session->userdata('poster_sess_user_name') ? $this->session->userdata('poster_sess_user_name') : 'admin'
         );
+        if ($this->db->field_exists('app_code', 'push_manual_campaigns')) {
+            $campaign_data['app_code'] = $this->_get_active_app();
+        }
 
         $id = $this->Push_notification_model->create_manual_campaign($campaign_data);
         $this->session->set_flashdata('success', "Campaign saved as Draft #{$id}. You can review or send it anytime.");
@@ -481,8 +613,17 @@ class PushNotification extends CI_Controller {
         $cat_id       = (int)$this->input->post('cat_id');
         $target_type  = $this->input->post('target_type'); // 'TOPIC', 'TEST_DEVICES', 'ALL_DEVICES', 'CUSTOM_TOKEN'
         $target_value = trim($this->input->post('target_value'));
+        $target_app   = $this->input->post('target_app');
+        if (empty($target_app) || !in_array($target_app, array('chirag', 'nitin', 'both'))) {
+            $target_app = $this->_get_active_app();
+        }
         $force_live   = $this->input->post('force_live') ? 1 : 0;
-        $system_dry   = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        if ($target_app === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $system_dry = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $system_dry = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
         
         // Effective mode:
         // If system is already in LIVE mode ($system_dry === 0), broadcast LIVE ($is_dry_run = 0).
@@ -519,6 +660,59 @@ class PushNotification extends CI_Controller {
             if ($cat_row) $cat_name = $cat_row['cat_name'];
         }
 
+        // Handle Scheduled Date & Time Delivery
+        $delivery_mode = $this->input->post('delivery_mode');
+        if ($delivery_mode === 'SCHEDULE') {
+            $sched_date = trim($this->input->post('scheduled_date'));
+            $sched_time = trim($this->input->post('scheduled_time'));
+            if (empty($sched_date) || empty($sched_time)) {
+                $this->session->set_flashdata('error', 'Please select both Date and Time to schedule the notification.');
+                redirect('PushNotification/composer');
+                return;
+            }
+
+            $sched_ts = strtotime("{$sched_date} {$sched_time}:00");
+            if (!$sched_ts) {
+                $this->session->set_flashdata('error', 'Invalid scheduled date or time.');
+                redirect('PushNotification/composer');
+                return;
+            }
+
+            if ($sched_ts < (time() - 120)) {
+                $this->session->set_flashdata('error', 'Scheduled date and time must be in the future (Asia/Kolkata).');
+                redirect('PushNotification/composer');
+                return;
+            }
+
+            $scheduled_at = date('Y-m-d H:i:s', $sched_ts);
+
+            $campaign_data = array(
+                'title'                    => $title,
+                'message'                  => $message,
+                'image_path'               => $image_info['path'],
+                'image_url'                => $image_info['url'],
+                'target_type'              => $target_type,
+                'target_value'             => $target_value,
+                'target_screen'            => 'category_detail',
+                'cat_id'                   => $cat_id ? $cat_id : 10,
+                'status'                   => 'SCHEDULED',
+                'scheduled_at'             => $scheduled_at,
+                'is_dry_run'               => $is_dry_run,
+                'targeted_count'           => 0,
+                'accepted_count'           => 0,
+                'confirmed_delivery_count' => 0,
+                'open_count'               => 0,
+                'created_by'               => $this->session->userdata('poster_sess_user_name') ? $this->session->userdata('poster_sess_user_name') : 'admin',
+                'app_code'                 => $target_app
+            );
+
+            $campaign_id = $this->Push_notification_model->create_manual_campaign($campaign_data);
+            $formatted_time = date('d M Y, h:i A', $sched_ts);
+            $this->session->set_flashdata('success', "✓ Notification successfully SCHEDULED for {$formatted_time} (Campaign #{$campaign_id})! It will be automatically dispatched at that exact time.");
+            redirect('PushNotification/campaigns');
+            return;
+        }
+
         // 1. Create Campaign record with PROCESSING status
         $campaign_data = array(
             'title'         => $title,
@@ -533,6 +727,9 @@ class PushNotification extends CI_Controller {
             'is_dry_run'    => $is_dry_run,
             'created_by'    => $this->session->userdata('poster_sess_user_name') ? $this->session->userdata('poster_sess_user_name') : 'admin'
         );
+        if ($this->db->field_exists('app_code', 'push_manual_campaigns')) {
+            $campaign_data['app_code'] = $target_app;
+        }
 
         $campaign_id = $this->Push_notification_model->create_manual_campaign($campaign_data);
 
@@ -555,31 +752,55 @@ class PushNotification extends CI_Controller {
             if ($total_devices <= 0) $total_devices = 23;
             $sent_count = $result_success = false;
 
-            $result = $this->fcm_v1_client->send('TOPIC', $target_value, $content, (bool)$is_dry_run);
-            $sent_count = $result['success'] ? $total_devices : 0;
-            $failed_count = $result['success'] ? 0 : $total_devices;
+            $apps_to_dispatch = ($target_app === 'both') ? array('chirag', 'nitin') : array($target_app);
+            $result = array('success' => false, 'http_status' => 500, 'fcm_message_id' => null, 'execution_time_ms' => 0, 'error' => 'No apps dispatched');
 
-            $this->Push_notification_model->record_manual_campaign_result($campaign_id, $result, 'TOPIC', $target_value, $total_devices, $is_dry_run);
+            foreach ($apps_to_dispatch as $app_code) {
+                $this->fcm_v1_client->set_profile($app_code);
+                $app_name_tag = ($app_code === 'nitin') ? '[Nitin Sir App]' : '[Chirag Sir App]';
+
+                $app_sys_dry = ($app_code === 'nitin')
+                    ? (($this->Push_notification_model->get_config('nitin_dry_run_mode') !== null) ? (int)$this->Push_notification_model->get_config('nitin_dry_run_mode') : 1)
+                    : (int)$this->Push_notification_model->get_config('dry_run_mode');
+                $app_dry_run = ($app_sys_dry === 0 || $force_live === 1) ? 0 : 1;
+
+                $app_devices = $this->Push_notification_model->get_registered_devices_count(true, $app_code);
+                if ($app_devices <= 0) {
+                    $app_devices = ($app_code === 'nitin') ? 1 : 23;
+                }
+
+                $res = $this->fcm_v1_client->send('TOPIC', $target_value, $content, (bool)$app_dry_run);
+                $sent_count   = $res['success'] ? $app_devices : 0;
+                $failed_count = $res['success'] ? 0 : $app_devices;
+
+                $this->Push_notification_model->record_manual_campaign_result($campaign_id, $res, 'TOPIC', $target_value . " ({$app_code})", $app_devices, $app_dry_run);
+                
+                // Log entry
+                $this->db->insert('push_notification_logs', array(
+                    'bank_id'                  => 0,
+                    'campaign_id'              => $campaign_id,
+                    'title'                    => "{$app_name_tag} {$title}",
+                    'target_type'              => 'TOPIC',
+                    'target_destination'       => "{$target_value} ({$app_code})",
+                    'http_status'              => $res['http_status'],
+                    'fcm_message_id'           => $res['fcm_message_id'],
+                    'response_body'            => is_string($res['response_body']) ? $res['response_body'] : json_encode($res['response_body']),
+                    'sent_count'               => $sent_count,
+                    'failed_count'             => $failed_count,
+                    'confirmed_delivery_count' => 0,
+                    'click_count'              => 0,
+                    'is_dry_run'               => $app_dry_run,
+                    'execution_time_ms'        => $res['execution_time_ms'],
+                    'created_at'               => date('Y-m-d H:i:s')
+                ));
+
+                if ($res['success']) {
+                    $result = $res;
+                } else if (!$result['success']) {
+                    $result = $res;
+                }
+            }
             $this->Push_notification_model->update_manual_campaign($campaign_id, array('accepted_count' => $sent_count));
-            
-            // Log entry
-            $this->db->insert('push_notification_logs', array(
-                'bank_id'                  => 0,
-                'campaign_id'              => $campaign_id,
-                'title'                    => $title,
-                'target_type'              => 'TOPIC',
-                'target_destination'       => $target_value,
-                'http_status'              => $result['http_status'],
-                'fcm_message_id'           => $result['fcm_message_id'],
-                'response_body'            => is_string($result['response_body']) ? $result['response_body'] : json_encode($result['response_body']),
-                'sent_count'               => $sent_count,
-                'failed_count'             => $failed_count,
-                'confirmed_delivery_count' => 0,
-                'click_count'              => 0,
-                'is_dry_run'               => $is_dry_run,
-                'execution_time_ms'        => $result['execution_time_ms'],
-                'created_at'               => date('Y-m-d H:i:s')
-            ));
 
         } elseif ($target_type === 'TEST_DEVICES') {
             $test_devices = $this->Push_notification_model->get_test_devices();
@@ -731,12 +952,19 @@ class PushNotification extends CI_Controller {
 
         $filters = array('status' => $status, 'target_type' => $target_type);
 
-        $data['campaigns'] = $this->Push_notification_model->get_manual_campaigns($limit, $offset, $filters);
-        $data['total']     = $this->Push_notification_model->get_manual_campaigns_count($filters);
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
+        $data['campaigns'] = $this->Push_notification_model->get_manual_campaigns($limit, $offset, $filters, $data['active_app']);
+        $data['total']     = $this->Push_notification_model->get_manual_campaigns_count($filters, $data['active_app']);
         $data['page']      = $page;
         $data['pages']     = ceil($data['total'] / $limit);
         $data['filters']   = $filters;
-        $data['dry_run']   = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        if ($data['active_app'] === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $data['dry_run'] = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $data['dry_run'] = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
 
         $this->load->view('header');
         $this->load->view('sidebar');
@@ -833,5 +1061,495 @@ class PushNotification extends CI_Controller {
         }
 
         return $res;
+    }
+
+    /**
+     * Instantly dispatches a SCHEDULED campaign
+     */
+    public function send_scheduled_now($id) {
+        $camp = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$camp || $camp['status'] !== 'SCHEDULED') {
+            $this->session->set_flashdata('error', 'Campaign not found or not in SCHEDULED status.');
+            redirect('PushNotification/campaigns');
+            return;
+        }
+
+        $this->db->where('id', (int)$id)->update('push_manual_campaigns', array('scheduled_at' => date('Y-m-d H:i:s')));
+        $this->Push_notification_model->check_and_dispatch_scheduled_campaigns();
+
+        $this->session->set_flashdata('success', "Scheduled Notification #{$id} has been dispatched immediately!");
+        redirect('PushNotification/campaigns');
+    }
+
+    /**
+     * Cancel a SCHEDULED campaign
+     */
+    public function cancel_scheduled($id) {
+        $camp = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$camp || $camp['status'] !== 'SCHEDULED') {
+            $this->session->set_flashdata('error', 'Campaign not found or not in SCHEDULED status.');
+            redirect('PushNotification/campaigns');
+            return;
+        }
+
+        $this->Push_notification_model->update_manual_campaign($id, array('status' => 'CANCELLED'));
+        $this->session->set_flashdata('success', "Scheduled Notification #{$id} has been CANCELLED.");
+        redirect('PushNotification/campaigns');
+    }
+
+    /**
+     * Delete a campaign (Draft, Cancelled, Scheduled, or Paused)
+     */
+    public function delete_campaign($id) {
+        $id = (int)$id;
+        $campaign = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$campaign) {
+            $this->session->set_flashdata('error', 'Campaign not found.');
+            $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+            redirect($ref);
+            return;
+        }
+
+        $this->db->where('id', $id)->delete('push_manual_campaigns');
+
+        // Also clean up from session if present
+        $recent = $this->session->userdata('last_imported_ids');
+        if (is_array($recent)) {
+            $recent = array_values(array_diff($recent, array($id)));
+            $this->session->set_userdata('last_imported_ids', $recent);
+        }
+
+        $this->session->set_flashdata('success', "Notification #{$id} has been permanently deleted.");
+        $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+        redirect($ref);
+    }
+
+    /**
+     * Pause a SCHEDULED campaign so it is not dispatched
+     */
+    public function pause_campaign($id) {
+        $id = (int)$id;
+        $camp = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$camp) {
+            $this->session->set_flashdata('error', 'Campaign not found.');
+            $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+            redirect($ref);
+            return;
+        }
+
+        $this->Push_notification_model->update_manual_campaign($id, array('status' => 'PAUSED'));
+        $this->session->set_flashdata('success', "⏸️ Notification #{$id} is now PAUSED (will not be dispatched automatically).");
+        $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+        redirect($ref);
+    }
+
+    /**
+     * Resume a PAUSED campaign back to SCHEDULED
+     */
+    public function resume_campaign($id) {
+        $id = (int)$id;
+        $camp = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$camp) {
+            $this->session->set_flashdata('error', 'Campaign not found.');
+            $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+            redirect($ref);
+            return;
+        }
+
+        $this->Push_notification_model->update_manual_campaign($id, array('status' => 'SCHEDULED'));
+        $this->session->set_flashdata('success', "▶️ Notification #{$id} is now RESUMED and SCHEDULED for dispatch.");
+        $ref = !empty($_SERVER['HTTP_REFERER']) ? $_SERVER['HTTP_REFERER'] : base_url('PushNotification/campaigns');
+        redirect($ref);
+    }
+
+    /**
+     * Clear the temporary 'Just Imported' box from session
+     */
+    public function clear_imported_list() {
+        $this->session->unset_userdata('last_imported_ids');
+        redirect('PushNotification/import_json');
+    }
+
+    /**
+     * Bulk JSON Notification Import View
+     */
+    public function import_json() {
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
+        $data['categories']        = $this->db->select('cat_id, cat_name')->order_by('cat_name', 'ASC')->get('category')->result_array();
+        $data['test_devices']      = $this->Push_notification_model->get_test_devices($data['active_app']);
+        $data['default_topic']     = $this->Push_notification_model->get_config('fcm_topic') ?: 'all_users';
+
+        if ($data['active_app'] === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $data['dry_run'] = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $data['dry_run'] = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
+
+        // Fetch recently imported notifications (persist across requests via session)
+        $flash_ids = $this->session->flashdata('recent_imported_ids');
+        if (!empty($flash_ids) && is_array($flash_ids)) {
+            $this->session->set_userdata('last_imported_ids', $flash_ids);
+        }
+        $imported_ids = $this->session->userdata('last_imported_ids');
+
+        $data['recent_imported'] = array();
+        if (!empty($imported_ids) && is_array($imported_ids)) {
+            $data['recent_imported'] = $this->db->where_in('id', $imported_ids)
+                                                ->order_by('id', 'DESC')
+                                                ->get('push_manual_campaigns')
+                                                ->result_array();
+        }
+
+        $this->load->view('header');
+        $this->load->view('sidebar');
+        $this->load->view('push_notification/import_json', $data);
+        $this->load->view('footer');
+    }
+
+    /**
+     * Process JSON Upload / Direct Input and bulk insert scheduled notifications
+     */
+    public function do_import_json() {
+        $json_raw = '';
+
+        // 1. Check if a .json file was uploaded
+        if (!empty($_FILES['json_file']['tmp_name']) && is_uploaded_file($_FILES['json_file']['tmp_name'])) {
+            $json_raw = file_get_contents($_FILES['json_file']['tmp_name']);
+        } elseif ($this->input->post('json_content')) {
+            $json_raw = trim($this->input->post('json_content'));
+        }
+
+        if (empty($json_raw)) {
+            $this->session->set_flashdata('error', 'Please upload a .json file or paste your JSON content.');
+            redirect('PushNotification/import_json');
+            return;
+        }
+
+        // Clean UTF-8 BOM if present
+        $json_raw = preg_replace('/^\xEF\xBB\xBF/', '', $json_raw);
+        $items = json_decode($json_raw, true);
+
+        if ($items === null && json_last_error() !== JSON_ERROR_NONE) {
+            $this->session->set_flashdata('error', 'Invalid JSON syntax: ' . json_last_error_msg() . '. Please verify your JSON format.');
+            redirect('PushNotification/import_json');
+            return;
+        }
+
+        // Handle case where root object wraps items: {"notifications": [...]}, {"data": [...]}, {"items": [...]}
+        if (is_array($items) && !isset($items[0])) {
+            foreach (array('notifications', 'data', 'items', 'campaigns') as $wrapper_key) {
+                if (isset($items[$wrapper_key]) && is_array($items[$wrapper_key])) {
+                    $items = $items[$wrapper_key];
+                    break;
+                }
+            }
+            // If it's a single notification object
+            if (is_array($items) && !isset($items[0]) && (isset($items['title']) || isset($items['titel']))) {
+                $items = array($items);
+            }
+        }
+
+        if (!is_array($items) || empty($items)) {
+            $this->session->set_flashdata('error', 'No notification items found in JSON. Format must be an array of notification objects.');
+            redirect('PushNotification/import_json');
+            return;
+        }
+
+        $default_app    = $this->input->post('default_app') ?: $this->_get_active_app();
+        $default_cat_id = (int)$this->input->post('default_cat_id') ?: 10;
+        $default_target = $this->input->post('target_type') ?: 'TOPIC';
+        $default_topic  = $this->input->post('target_value') ?: ($this->Push_notification_model->get_config('fcm_topic') ?: 'all_users');
+        $force_live     = $this->input->post('force_live') ? 1 : 0;
+        $system_dry     = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        $is_dry_run     = ($system_dry === 0 || $force_live === 1) ? 0 : 1;
+        $admin_user     = $this->session->userdata('poster_sess_user_name') ?: 'admin';
+
+        $imported_count = 0;
+        $imported_ids   = array();
+        $skipped_count  = 0;
+        $errors         = array();
+
+        $this->Push_notification_model->ensure_scheduled_campaign_support();
+
+        foreach ($items as $idx => $row) {
+            if (!is_array($row)) {
+                $skipped_count++;
+                continue;
+            }
+
+            // Extract Title (flexible keys: title, titel, heading, name)
+            $title = '';
+            foreach (array('title', 'titel', 'heading', 'name') as $tk) {
+                if (!empty($row[$tk])) {
+                    $title = trim((string)$row[$tk]);
+                    break;
+                }
+            }
+
+            // Extract Description (flexible keys: description, descipatin, desc, message, body, msg, text)
+            $message = '';
+            foreach (array('description', 'descipatin', 'desc', 'message', 'body', 'msg', 'details', 'text') as $mk) {
+                if (!empty($row[$mk])) {
+                    $message = trim((string)$row[$mk]);
+                    break;
+                }
+            }
+
+            if (empty($title) || empty($message)) {
+                $skipped_count++;
+                $errors[] = "Item #" . ($idx + 1) . " skipped: Title and Description are required.";
+                continue;
+            }
+
+            // Extract Time / Scheduled At (flexible keys: time, scheduled_at, scheduled_time, datetime, date_time, slot)
+            $time_raw = '';
+            foreach (array('time', 'scheduled_at', 'scheduled_time', 'datetime', 'date_time', 'slot') as $tk) {
+                if (!empty($row[$tk])) {
+                    $time_raw = trim((string)$row[$tk]);
+                    break;
+                }
+            }
+
+            // If date is provided in separate field: "date": "2026-11-05", "time": "10:00"
+            $date_raw = !empty($row['date']) ? trim((string)$row['date']) : '';
+            if (!empty($date_raw) && !empty($time_raw) && !strpos($time_raw, '-')) {
+                $time_raw = "{$date_raw} {$time_raw}";
+            } elseif (!empty($date_raw) && empty($time_raw)) {
+                $time_raw = "{$date_raw} 09:00:00";
+            }
+
+            $scheduled_at = null;
+
+            if (!empty($time_raw)) {
+                // If only time is provided (e.g. "10:00", "10:30 AM", "18:45")
+                if (preg_match('/^\d{1,2}:\d{2}(:\d{2})?(\s*(AM|PM|am|pm))?$/', $time_raw)) {
+                    $today_ts = strtotime(date('Y-m-d') . ' ' . $time_raw);
+                    // If this time today has passed, schedule for tomorrow
+                    if ($today_ts < time()) {
+                        $scheduled_at = date('Y-m-d H:i:s', strtotime('+1 day', $today_ts));
+                    } else {
+                        $scheduled_at = date('Y-m-d H:i:s', $today_ts);
+                    }
+                } elseif (is_numeric($time_raw) && (int)$time_raw > 1500000000) {
+                    // Unix timestamp
+                    $scheduled_at = date('Y-m-d H:i:s', (int)$time_raw);
+                } else {
+                    $parsed_ts = strtotime($time_raw);
+                    if ($parsed_ts) {
+                        $scheduled_at = date('Y-m-d H:i:s', $parsed_ts);
+                    } else {
+                        $scheduled_at = date('Y-m-d H:i:s', strtotime('+1 hour'));
+                    }
+                }
+            } else {
+                $scheduled_at = date('Y-m-d H:i:s', strtotime('+2 hours'));
+            }
+
+            // Optional image URL
+            $image_url = null;
+            foreach (array('image', 'image_url', 'banner', 'photo', 'img') as $ik) {
+                if (!empty($row[$ik])) {
+                    $image_url = trim((string)$row[$ik]);
+                    break;
+                }
+            }
+
+            // Optional target app
+            $item_app = $default_app;
+            foreach (array('target_app', 'app', 'app_code') as $ak) {
+                if (!empty($row[$ak]) && in_array(strtolower($row[$ak]), array('chirag', 'nitin', 'both'))) {
+                    $item_app = strtolower($row[$ak]);
+                    break;
+                }
+            }
+
+            // Optional cat_id
+            $item_cat_id = $default_cat_id;
+            if (!empty($row['cat_id']) || !empty($row['category_id'])) {
+                $item_cat_id = (int)(!empty($row['cat_id']) ? $row['cat_id'] : $row['category_id']);
+            }
+
+            $campaign_data = array(
+                'title'                    => $title,
+                'message'                  => $message,
+                'image_path'               => null,
+                'image_url'                => $image_url,
+                'target_type'              => $default_target,
+                'target_value'             => $default_topic,
+                'target_screen'            => 'category_detail',
+                'cat_id'                   => $item_cat_id,
+                'status'                   => 'SCHEDULED',
+                'scheduled_at'             => $scheduled_at,
+                'is_dry_run'               => $is_dry_run,
+                'targeted_count'           => 0,
+                'accepted_count'           => 0,
+                'confirmed_delivery_count' => 0,
+                'open_count'               => 0,
+                'created_by'               => $admin_user,
+                'app_code'                 => $item_app
+            );
+
+            $new_id = $this->Push_notification_model->create_manual_campaign($campaign_data);
+            if ($new_id) {
+                $imported_count++;
+                $imported_ids[] = $new_id;
+            }
+        }
+
+        if ($imported_count > 0) {
+            $msg = "✓ Successfully imported and scheduled {$imported_count} notification(s)!";
+            if ($skipped_count > 0) {
+                $msg .= " ({$skipped_count} item(s) skipped due to missing fields).";
+            }
+            $this->session->set_flashdata('success', $msg);
+            $this->session->set_flashdata('recent_imported_ids', $imported_ids);
+            $this->session->set_userdata('last_imported_ids', $imported_ids);
+        } else {
+            $this->session->set_flashdata('error', 'No notifications were imported. ' . implode(' ', $errors));
+        }
+
+        redirect('PushNotification/import_json');
+    }
+
+    /**
+     * Edit Scheduled Notification / Draft with Image Upload Option
+     */
+    public function edit($id) {
+        $id = (int)$id;
+        $campaign = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$campaign) {
+            $this->session->set_flashdata('error', "Notification #{$id} not found.");
+            redirect('PushNotification/campaigns');
+            return;
+        }
+
+        $data['active_app']        = $this->_get_active_app();
+        $data['active_project_id'] = $this->fcm_v1_client->get_project_id();
+        $data['campaign']          = $campaign;
+        $data['categories']        = $this->db->select('cat_id, cat_name')->order_by('cat_name', 'ASC')->get('category')->result_array();
+        $data['test_devices']      = $this->Push_notification_model->get_test_devices($data['active_app']);
+        $data['total_active_tokens']= $this->Push_notification_model->get_registered_devices_count(true);
+        $data['default_topic']     = $this->Push_notification_model->get_config('fcm_topic') ?: 'all_users';
+
+        if ($data['active_app'] === 'nitin') {
+            $n_dry = $this->Push_notification_model->get_config('nitin_dry_run_mode');
+            $data['dry_run'] = ($n_dry !== null) ? (int)$n_dry : 1;
+        } else {
+            $data['dry_run'] = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        }
+
+        $this->load->view('header');
+        $this->load->view('sidebar');
+        $this->load->view('push_notification/edit', $data);
+        $this->load->view('footer');
+    }
+
+    /**
+     * Update Scheduled Notification or Draft (Title, Message, Image Upload, Scheduled Time)
+     */
+    public function update_campaign($id) {
+        $id = (int)$id;
+        $campaign = $this->Push_notification_model->get_manual_campaign($id);
+        if (!$campaign) {
+            $this->session->set_flashdata('error', "Notification #{$id} not found.");
+            redirect('PushNotification/campaigns');
+            return;
+        }
+
+        $title   = trim($this->input->post('title'));
+        $message = trim($this->input->post('message'));
+        $cat_id  = (int)$this->input->post('cat_id');
+        $target_app = $this->input->post('target_app') ?: $this->_get_active_app();
+
+        if (empty($title) || empty($message)) {
+            $this->session->set_flashdata('error', 'Notification Title and Description are required.');
+            redirect('PushNotification/edit/' . $id);
+            return;
+        }
+
+        // Image Handling
+        $remove_image = $this->input->post('remove_image') ? 1 : 0;
+        $current_image_path = $campaign['image_path'];
+        $current_image_url  = $campaign['image_url'];
+
+        if ($remove_image) {
+            $current_image_path = null;
+            $current_image_url  = null;
+        } else {
+            // Check if new file was uploaded or direct image URL entered
+            $image_info = $this->handle_image_upload();
+            if (!empty($image_info['url'])) {
+                $current_image_url  = $image_info['url'];
+                $current_image_path = $image_info['path'];
+            }
+        }
+
+        $target_type  = $this->input->post('target_type') ?: 'TOPIC';
+        $target_value = trim($this->input->post('target_value')) ?: 'all_users';
+        if ($target_type === 'CUSTOM_TOKEN') {
+            $c_tok = trim($this->input->post('custom_token'));
+            if (!empty($c_tok)) $target_value = $c_tok;
+        }
+
+        $delivery_mode = $this->input->post('delivery_mode');
+        $status        = $campaign['status'];
+        $scheduled_at  = $campaign['scheduled_at'];
+
+        if ($delivery_mode === 'SCHEDULE') {
+            $s_date = trim($this->input->post('scheduled_date'));
+            $s_time = trim($this->input->post('scheduled_time'));
+            if (!empty($s_date) && !empty($s_time)) {
+                $ts = strtotime("{$s_date} {$s_time}:00");
+                if ($ts) {
+                    $scheduled_at = date('Y-m-d H:i:s', $ts);
+                    $status = 'SCHEDULED';
+                }
+            }
+        } elseif ($delivery_mode === 'PAUSED') {
+            $status = 'PAUSED';
+            $s_date = trim($this->input->post('scheduled_date'));
+            $s_time = trim($this->input->post('scheduled_time'));
+            if (!empty($s_date) && !empty($s_time)) {
+                $ts = strtotime("{$s_date} {$s_time}:00");
+                if ($ts) {
+                    $scheduled_at = date('Y-m-d H:i:s', $ts);
+                }
+            }
+        } elseif ($delivery_mode === 'DRAFT') {
+            $status = 'DRAFT';
+        }
+
+        $force_live = $this->input->post('force_live') ? 1 : 0;
+        $system_dry = (int)$this->Push_notification_model->get_config('dry_run_mode');
+        $is_dry_run = ($system_dry === 0 || $force_live === 1) ? 0 : 1;
+
+        $update_data = array(
+            'title'         => $title,
+            'message'       => $message,
+            'image_path'    => $current_image_path,
+            'image_url'     => $current_image_url,
+            'target_type'   => $target_type,
+            'target_value'  => $target_value,
+            'cat_id'        => $cat_id ?: 10,
+            'status'        => $status,
+            'scheduled_at'  => $scheduled_at,
+            'is_dry_run'    => $is_dry_run,
+            'app_code'      => $target_app
+        );
+
+        $this->Push_notification_model->update_manual_campaign($id, $update_data);
+
+        // If user clicked "Send Immediately Now"
+        if ($delivery_mode === 'NOW') {
+            $this->session->set_flashdata('success', "Notification #{$id} updated. Dispatching now...");
+            redirect('PushNotification/send_scheduled_now/' . $id);
+            return;
+        }
+
+        $this->session->set_flashdata('success', "✓ Notification #{$id} has been successfully updated!");
+        $redirect_to = $this->input->post('redirect_ref') ? $this->input->post('redirect_ref') : base_url('PushNotification/campaigns');
+        redirect($redirect_to);
     }
 }
