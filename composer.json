@@ -1,4 +1,80 @@
-{
+Implement a new backend-driven "Home Categories" (Browse by Category) feature in our Poster Maker backend and Admin Panel, following the exact same architecture, authentication, and conventions as our existing `/api/v1/poster/hero` and `/api/v1/poster/trending` endpoints.
+
+### 1. Database Migration / Table (`home_categories`)
+Create a table `home_categories` with columns:
+- `id` (INT, Primary Key, Auto Increment)
+- `app_id` (INT, NOT NULL, DEFAULT 2)
+- `name` (VARCHAR(100), NOT NULL) — Display title on the Home screen (e.g.,
+"Festival",
+"Wedding",
+"Sale")
+- `icon_url` (VARCHAR(500), NULLABLE) — Uploaded icon image path/URL (transparent PNG/WebP, recommended 128x128px)
+- `bg_color` (VARCHAR(20), NULLABLE) — Optional hex fill color for tile (e.g.,
+"#FFFBEB")
+- `border_color` (VARCHAR(20), NULLABLE) — Optional hex 1dp border color for tile (e.g.,
+"#FDE68A")
+- `action_type` (VARCHAR(50), NOT NULL, DEFAULT 'template_category') — Allowed values:
+  - `template_category` (opens Template Selection on selected `cat_id` / `cat_name`)
+  - `background_category` (opens Background Selection on selected `cat_id` / `cat_name`)
+  - `all_templates` (opens All Template Categories)
+  - `all_backgrounds` (opens All Background Categories)
+  - `create_custom` (opens Create Custom screen)
+  - `my_creations` (opens My Creations screen)
+  - `url` (opens external `action_url` in browser)
+- `cat_id` (VARCHAR(50), NULLABLE) — Target category ID (when `action_type` is `template_category` or `background_category`)
+- `cat_name` (VARCHAR(100), NULLABLE) — Target category name fallback
+- `action_url` (VARCHAR(500), NULLABLE) — External URL when `action_type` is `url` (or `category/<id>` format)
+- `sort_order` (INT, NOT NULL, DEFAULT 0) — Display order on Home screen
+- `is_active` (TINYINT(1), NOT NULL, DEFAULT 1) — 1 = Active/Visible,
+0 = Hidden
+- `created_at`, `updated_at` (TIMESTAMP)
+
+### 2. API Endpoint
+Create: `POST /api/v1/poster/home_categories`
+(Full URL: `https: //cygnux.in/postermaker/api/v1/poster/home_categories`)
+
+Accept the exact same POST form parameters and key validation as `/api/v1/poster/hero` and `/api/v1/poster/trending`:
+- `device` (e.g., `"1"`)
+- `app_id` (e.g., `"2"`)
+- `key` (same app validation key)
+
+Query active rows matching `app_id` (or global) ordered by `sort_order ASC, id ASC`:
+`WHERE is_active = 1 AND app_id = :app_id ORDER BY sort_order ASC, id ASC`
+
+Return full absolute URLs for `icon_url` and respond with JSON in this exact format: {
+	"status": 1,
+	"message": "Success",
+	"data": [
+		{
+			"id": 1,
+			"name": "Festival",
+			"icon_url": "https://cygnux.in/postermaker/upload/home_categories/festival.png",
+			"bg_color": "#FFFBEB",
+			"border_color": "#FDE68A",
+			"action_type": "template_category",
+			"cat_id": "12",
+			"cat_name": "Festival",
+			"action_url": "",
+			"sort_order": 1,
+			"is_active": 1
+		}
+	]
+}
+
+### 3. Admin Panel (CMS) CRUD
+Add a "Home Categories" management section in the Admin Panel with:
+1. List view with drag/sort order, icon preview, tile color preview, action type badge, and Active/Inactive toggle (`is_active`).
+2. Create / Edit form with:
+   - Name (`name`)
+   - Icon Image Upload (`icon_url`, saved under `/upload/home_categories/`)
+   - Tile Background Color Picker (`bg_color`) & Border Color Picker (`border_color`)
+   - Action Type Dropdown (`template_category`, `background_category`, `all_templates`, `all_backgrounds`, `create_custom`, `my_creations`, `url`)
+   - Conditional Target Fields based on selected `action_type`:
+     - If `template_category`: Dropdown populated from existing Template Categories (auto-filling `cat_id` and `cat_name`)
+     - If `background_category`: Dropdown populated from existing Background Categories (auto-filling `cat_id` and `cat_name`)
+     - If `url`: Text input for `action_url`
+   - Sort Order (`sort_order`) and Status (`is_active`)
+3. Delete / Toggle status actions, and seed initial default rows (Festival, Wedding, Sale, Business, Birthday, Food, Education, Party) so the API immediately returns data.{
 	"description": "The CodeIgniter framework",
 	"name": "codeigniter/framework",
 	"type": "project",

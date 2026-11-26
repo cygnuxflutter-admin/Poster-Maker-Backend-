@@ -29,6 +29,14 @@ class MigrateDB extends CI_Controller {
         
         $this->db->query($sql2);
         echo "Table hero_banners created successfully.<br>";
+
+        $this->home_categories();
+    }
+
+    public function home_categories() {
+        $this->load->model('Home_category_model');
+        $this->Home_category_model->ensure_table_and_seed();
+        echo "Table home_categories ensured and seeded successfully.<br>";
     }
 
     public function add_app_id() {

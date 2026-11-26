@@ -41,11 +41,15 @@ class Fcm_v1_client {
         $profile = strtolower(trim((string)$profile));
         if ($profile === 'nitin') {
             $this->active_profile       = 'nitin';
-            $this->service_account_path = APPPATH . 'config/secrets/nitin_poster_service_account.json';
+            $main_path                  = APPPATH . 'config/secrets/nitin_poster_service_account.json';
+            $bak_path                   = APPPATH . 'config/secrets/nitin_poster_service_account.json.bak';
+            $this->service_account_path = file_exists($main_path) ? $main_path : (file_exists($bak_path) ? $bak_path : $main_path);
             $this->cache_file           = APPPATH . 'cache/fcm_oauth_token_nitin.json';
         } else {
             $this->active_profile       = 'chirag';
-            $this->service_account_path = APPPATH . 'config/secrets/firebase_service_account.json';
+            $main_path                  = APPPATH . 'config/secrets/firebase_service_account.json';
+            $bak_path                   = APPPATH . 'config/secrets/firebase_service_account.json.bak';
+            $this->service_account_path = file_exists($main_path) ? $main_path : (file_exists($bak_path) ? $bak_path : $main_path);
             $this->cache_file           = APPPATH . 'cache/fcm_oauth_token.json';
         }
 
@@ -90,9 +94,10 @@ class Fcm_v1_client {
     public function has_valid_credentials($profile = null) {
         $path = $this->service_account_path;
         if ($profile !== null) {
-            $path = ($profile === 'nitin') 
-                ? APPPATH . 'config/secrets/nitin_poster_service_account.json'
-                : APPPATH . 'config/secrets/firebase_service_account.json';
+            $is_nitin = ($profile === 'nitin');
+            $main = $is_nitin ? APPPATH . 'config/secrets/nitin_poster_service_account.json' : APPPATH . 'config/secrets/firebase_service_account.json';
+            $bak  = $is_nitin ? APPPATH . 'config/secrets/nitin_poster_service_account.json.bak' : APPPATH . 'config/secrets/firebase_service_account.json.bak';
+            $path = file_exists($main) ? $main : (file_exists($bak) ? $bak : $main);
         }
 
         if (!file_exists($path)) {
@@ -210,6 +215,9 @@ class Fcm_v1_client {
         $json = json_decode($res, true);
         if ($http_code !== 200 || empty($json['access_token'])) {
             $err_desc = isset($json['error_description']) ? $json['error_description'] : (isset($json['error']) ? $json['error'] : $res);
+            if (stripos($err_desc, 'Invalid JWT Signature') !== false) {
+                $err_desc .= " (Firebase Service Account Key has been revoked or expired on Google Cloud. Please generate a new private key from Firebase Console for project '{$this->project_id}')";
+            }
             throw new Exception("OAuth2 Token Exchange failed (HTTP {$http_code}): " . $err_desc);
         }
 
@@ -378,6 +386,12 @@ class Fcm_v1_client {
                 'execution_time_ms' => $exec_time,
                 'is_retryable'      => false
             );
+        }
+
+        if ($http_code === 401) {
+            @unlink($this->cache_file);
+            $this->access_token = null;
+            $this->token_expires_at = 0;
         }
 
         // Determine error classifications

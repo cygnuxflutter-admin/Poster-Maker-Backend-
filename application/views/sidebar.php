@@ -47,6 +47,17 @@ $initial = strtoupper(substr($username, 0, 1));
             </li>
             <?php } ?>
 
+            <?php if (in_array('1', $menu)) { 
+                $isBgCat = ($s1 == 'site' && in_array($s2, ['bgcategory', 'showaddbgcatform', 'showbgcateditform']));
+            ?>
+            <li class="<?php echo $isBgCat ? 'nav-active current-page' : ''; ?>">
+                <a href="<?php echo base_url(); ?>site/bgCategory">
+                    <i class="fa-solid fa-image nav-icon"></i>
+                    <span>Background Category</span>
+                </a>
+            </li>
+            <?php } ?>
+
             <?php 
             $isFestivals = ($s1 == 'site' && $s2 == 'trending_festivals');
             ?>
@@ -66,6 +77,17 @@ $initial = strtoupper(substr($username, 0, 1));
                     <i class="fa-solid fa-panorama nav-icon"></i>
                     <span>Hero Banners</span>
                     <span class="nav-badge nav-badge-star">Top</span>
+                </a>
+            </li>
+
+            <?php 
+            $isHomeCats = ($s1 == 'site' && $s2 == 'home_categories');
+            ?>
+            <li class="<?php echo $isHomeCats ? 'nav-active current-page' : ''; ?>">
+                <a href="<?php echo base_url(); ?>site/home_categories">
+                    <i class="fa-solid fa-table-cells-large nav-icon"></i>
+                    <span>Home Categories</span>
+                    <span class="nav-badge nav-badge-star">Home</span>
                 </a>
             </li>
         </ul>

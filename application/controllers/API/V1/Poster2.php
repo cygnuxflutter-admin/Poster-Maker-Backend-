@@ -222,7 +222,7 @@ class Poster2 extends CI_Controller
 				/*if(isset($_POST['cat_id']) && !empty($_POST['cat_id']))
 				{*/
 
-					$result = $this->db->order_by('rand()')->get('background_category')->result_array();
+					$result = $this->db->order_by("CAST(sequence_number AS UNSIGNED)", "ASC")->get('background_category')->result_array();
 					$rows = array();
 
 					foreach ($result as $rwData)

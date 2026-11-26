@@ -177,6 +177,8 @@ class Db_function extends CI_Model{
 			$this->db->from($table);
 			if($table == 'category'){
 				$this->db->order_by('CAST(sequence_number AS UNSIGNED) ASC, cat_id ASC');
+			} else if($table == 'background_category'){
+				$this->db->order_by('CAST(sequence_number AS UNSIGNED) ASC, bg_cat_id ASC');
 			}
 
 			$query = $this->db->get();

@@ -623,14 +623,335 @@ public function insertcat()
 }
 public function category_sorting()
     {  
-      
        $this->Db_function->sortUpdate();
     }
+
+public function save_category_sequences()
+{
+    header('Content-Type: application/json');
+    $sequences = $this->input->post('sequences');
+    
+    if(!empty($sequences) && is_array($sequences))
+    {
+        $updated = 0;
+        foreach($sequences as $item) {
+            $cat_id = isset($item['cat_id']) ? intval($item['cat_id']) : 0;
+            $seq_num = isset($item['sequence_number']) ? intval($item['sequence_number']) : 0;
+            if($cat_id > 0) {
+                $this->db->where('cat_id', $cat_id);
+                $this->db->update('category', array('sequence_number' => $seq_num));
+                $updated++;
+            }
+        }
+        echo json_encode(array(
+            'status' => 'success', 
+            'message' => "Successfully updated sequence for {$updated} categories!"
+        ));
+        return;
+    }
+
+    $single_id = $this->input->post('cat_id');
+    $single_seq = $this->input->post('sequence_number');
+    if($single_id !== null && $single_seq !== null) {
+        $this->db->where('cat_id', intval($single_id));
+        $this->db->update('category', array('sequence_number' => intval($single_seq)));
+        echo json_encode(array(
+            'status' => 'success', 
+            'message' => 'Category sequence updated successfully!'
+        ));
+        return;
+    }
+
+    echo json_encode(array('status' => 'error', 'message' => 'No sequence data provided'));
+}
+
+public function auto_rotate_categories()
+{
+    header('Content-Type: application/json');
+    $updatedCount = $this->execute_auto_category_rotation();
+    $bgCount = $this->execute_auto_bg_category_rotation();
+    echo json_encode(array(
+        'status' => 'success',
+        'message' => "Successfully auto-rotated {$updatedCount} poster categories & {$bgCount} background categories based on today's date (" . date('d M Y') . ")!"
+    ));
+}
+
+public function auto_rotate_bg_categories()
+{
+    header('Content-Type: application/json');
+    $bgCount = $this->execute_auto_bg_category_rotation();
+    echo json_encode(array(
+        'status' => 'success',
+        'message' => "Successfully auto-rotated {$bgCount} background categories based on today's date (" . date('d M Y') . ")!"
+    ));
+}
+
+public function cron_auto_rotate()
+{
+    $token = $this->input->get('token');
+    if (!is_cli() && $token !== 'poster_cron_2026' && !$this->session->userdata('poster_sess_user_name')) {
+        show_error('Access Denied. Invalid or missing token.', 403);
+        return;
+    }
+
+    $updatedCount = $this->execute_auto_category_rotation();
+    $bgCount = $this->execute_auto_bg_category_rotation();
+    if (!is_cli()) {
+        header('Content-Type: text/plain; charset=UTF-8');
+    }
+    echo "[OK] Auto-rotated {$updatedCount} poster categories and {$bgCount} background categories based on date " . date('Y-m-d H:i:s') . "\n";
+}
+
+public function save_bg_category_sequences()
+{
+    header('Content-Type: application/json');
+    $sequences = $this->input->post('sequences');
+    
+    if(!empty($sequences) && is_array($sequences))
+    {
+        $updated = 0;
+        foreach($sequences as $item) {
+            $cat_id = isset($item['cat_id']) ? intval($item['cat_id']) : 0;
+            $seq_num = isset($item['sequence_number']) ? intval($item['sequence_number']) : 0;
+            if($cat_id > 0) {
+                $this->db->where('bg_cat_id', $cat_id);
+                $this->db->update('background_category', array('sequence_number' => $seq_num));
+                $updated++;
+            }
+        }
+        echo json_encode(array(
+            'status' => 'success', 
+            'message' => "Successfully updated sequence for {$updated} background categories!"
+        ));
+        return;
+    }
+
+    $single_id = $this->input->post('cat_id');
+    $single_seq = $this->input->post('sequence_number');
+    if($single_id !== null && $single_seq !== null) {
+        $this->db->where('bg_cat_id', intval($single_id));
+        $this->db->update('background_category', array('sequence_number' => intval($single_seq)));
+        echo json_encode(array(
+            'status' => 'success', 
+            'message' => 'Background category sequence updated successfully!'
+        ));
+        return;
+    }
+
+    echo json_encode(array('status' => 'error', 'message' => 'No sequence data provided'));
+}
+
+public function bgdeletecat()
+{
+    $cat_id = $this->input->post('cat_id');
+    if($cat_id) {
+        $this->db->where('bg_cat_id', intval($cat_id))->delete('background_category');
+        echo json_encode("Category deleted successfully");
+    } else {
+        echo json_encode("Error deleting category");
+    }
+}
+
+public function showbgcateditform($id = null)
+{
+    if(!$id) $id = $this->uri->segment(3);
+    $this->load->view('header');
+    $this->load->view('sidebar');
+    $data = $this->db->where('bg_cat_id', intval($id))->get('background_category')->result_array();
+    $this->load->view('bgCategory/cateditform', array('data' => $data));
+    $this->load->view('footer');
+}
+
+public function updatebgcat()
+{
+    $cat_id = $this->input->post('cat_id');
+    $name = $this->input->post('cat_name');
+    $sequence = $this->input->post('sequence_number');
+    if($cat_id) {
+        $data = array('name' => $name);
+        if($sequence !== null) $data['sequence_number'] = intval($sequence);
+        $this->db->where('bg_cat_id', intval($cat_id))->update('background_category', $data);
+    }
+    redirect('site/bgCategory');
+}
+
+private function execute_auto_bg_category_rotation($targetDate = null)
+{
+    if (!$targetDate) $targetDate = date('Y-m-d');
+    $todayTs = strtotime($targetDate);
+    $currentYear = (int)date('Y', $todayTs);
+
+    $seasonal = array(
+        4  => array('name' => 'Christmas', 'm' => 12, 'd' => 25, 'lead' => 40, 'after' => 2),
+        55 => array('name' => 'Valentine Day', 'm' => 2, 'd' => 14, 'lead' => 20, 'after' => 1),
+        9  => array('name' => 'Love', 'm' => 2, 'd' => 14, 'lead' => 20, 'after' => 1),
+        56 => array('name' => 'Women\'s Day', 'm' => 3, 'd' => 8, 'lead' => 15, 'after' => 1),
+        60 => array('name' => 'Eid Mubarak', 'm' => 4, 'd' => 15, 'lead' => 20, 'after' => 1),
+    );
+
+    $activeBg = array();
+    $upcomingBg = array();
+    $pastBg = array();
+
+    foreach ($seasonal as $bgId => $s) {
+        $eventTsThisYear = strtotime(sprintf("%04d-%02d-%02d", $currentYear, $s['m'], $s['d']));
+        $eventTsNextYear = strtotime(sprintf("%04d-%02d-%02d", $currentYear + 1, $s['m'], $s['d']));
+        $start = $eventTsThisYear - ($s['lead'] * 86400);
+        $end = $eventTsThisYear + ($s['after'] * 86400);
+
+        if ($todayTs >= $start && $todayTs <= $end) {
+            $diff = ($eventTsThisYear - $todayTs) / 86400;
+            $activeBg[$bgId] = $diff;
+        } elseif ($todayTs < $start) {
+            $diff = ($eventTsThisYear - $todayTs) / 86400;
+            $upcomingBg[$bgId] = $diff;
+        } else {
+            $diff = ($eventTsNextYear - $todayTs) / 86400;
+            $pastBg[$bgId] = $diff;
+        }
+    }
+
+    asort($activeBg);
+    asort($upcomingBg);
+    asort($pastBg);
+
+    $evergreenBg = array(8, 12, 1, 2, 11, 14, 7, 15, 5, 6, 13, 10, 3);
+
+    $ordered = array();
+    foreach(array_keys($activeBg) as $id) $ordered[] = $id;
+    foreach($evergreenBg as $id) if(!in_array($id, $ordered)) $ordered[] = $id;
+    foreach(array_keys($upcomingBg) as $id) if(!in_array($id, $ordered)) $ordered[] = $id;
+    foreach(array_keys($pastBg) as $id) if(!in_array($id, $ordered)) $ordered[] = $id;
+
+    $res = $this->db->select('bg_cat_id')->get('background_category');
+    if ($res) {
+        foreach($res->result_array() as $r) {
+            $id = (int)$r['bg_cat_id'];
+            if (!in_array($id, $ordered)) $ordered[] = $id;
+        }
+    }
+
+    $seq = 0;
+    foreach ($ordered as $bgCatId) {
+        $this->db->where('bg_cat_id', $bgCatId);
+        $this->db->update('background_category', array('sequence_number' => $seq));
+        $seq++;
+    }
+
+    return count($ordered);
+}
+
+private function execute_auto_category_rotation($targetDate = null)
+{
+    if (!$targetDate) $targetDate = date('Y-m-d');
+    $todayTs = strtotime($targetDate);
+    $currentYear = (int)date('Y', $todayTs);
+
+    // 1. Fetch active festivals from calendar
+    $festivals = array();
+    $festQuery = $this->db->where('is_active', 1)->get('festival_calendar');
+    if ($festQuery && $festQuery->num_rows() > 0) {
+        foreach ($festQuery->result_array() as $r) {
+            $m = (int)$r['event_month'];
+            $d = (int)$r['event_day'];
+            $lead = (int)$r['lead_days'];
+            $after = (int)$r['active_days_after'];
+
+            $eventTsThisYear = strtotime(sprintf("%04d-%02d-%02d", $currentYear, $m, $d));
+            $eventTsNextYear = strtotime(sprintf("%04d-%02d-%02d", $currentYear + 1, $m, $d));
+
+            $activeStart = $eventTsThisYear - ($lead * 86400);
+            $activeEnd = $eventTsThisYear + ($after * 86400);
+
+            if ($todayTs >= $activeStart && $todayTs <= $activeEnd) {
+                $diffDays = ($eventTsThisYear - $todayTs) / 86400;
+                $r['group'] = 'ACTIVE';
+                $r['score'] = $diffDays;
+            } elseif ($todayTs < $activeStart) {
+                $diffDays = ($eventTsThisYear - $todayTs) / 86400;
+                $r['group'] = 'UPCOMING';
+                $r['score'] = 1000 + $diffDays;
+            } else {
+                $diffDays = ($eventTsNextYear - $todayTs) / 86400;
+                $r['group'] = 'PAST';
+                $r['score'] = 5000 + $diffDays;
+            }
+            $festivals[] = $r;
+        }
+    }
+
+    usort($festivals, function($a, $b) {
+        return $a['score'] <=> $b['score'];
+    });
+
+    $allCats = array();
+    $catQuery = $this->db->select('cat_id, cat_name')->get('category');
+    if ($catQuery) {
+        foreach ($catQuery->result_array() as $c) {
+            $allCats[(int)$c['cat_id']] = $c['cat_name'];
+        }
+    }
+
+    $evergreenIds = array(47, 46, 18, 44, 10, 11, 48, 19, 42, 79, 21);
+
+    $finalOrderedIds = array();
+    $activeFestIds = array();
+    $upcomingFestIds = array();
+    $pastFestIds = array();
+
+    foreach ($festivals as $f) {
+        $cid = (int)$f['cat_id'];
+        if ($f['group'] === 'ACTIVE') {
+            $activeFestIds[] = $cid;
+        } elseif ($f['group'] === 'UPCOMING') {
+            $upcomingFestIds[] = $cid;
+        } else {
+            $pastFestIds[] = $cid;
+        }
+    }
+
+    foreach ($activeFestIds as $cid) {
+        if (!in_array($cid, $finalOrderedIds)) $finalOrderedIds[] = $cid;
+    }
+
+    $immediateUpcoming = array_splice($upcomingFestIds, 0, 5);
+    foreach ($immediateUpcoming as $cid) {
+        if (!in_array($cid, $finalOrderedIds)) $finalOrderedIds[] = $cid;
+    }
+
+    foreach ($evergreenIds as $cid) {
+        if (!in_array($cid, $finalOrderedIds)) $finalOrderedIds[] = $cid;
+    }
+
+    foreach ($upcomingFestIds as $cid) {
+        if (!in_array($cid, $finalOrderedIds)) $finalOrderedIds[] = $cid;
+    }
+
+    foreach ($pastFestIds as $cid) {
+        if (!in_array($cid, $finalOrderedIds)) $finalOrderedIds[] = $cid;
+    }
+
+    foreach ($allCats as $cid => $name) {
+        if (!in_array($cid, $finalOrderedIds)) {
+            $finalOrderedIds[] = $cid;
+        }
+    }
+
+    $seq = 0;
+    foreach ($finalOrderedIds as $catId) {
+        $this->db->where('cat_id', $catId);
+        $this->db->update('category', array('sequence_number' => $seq));
+        $seq++;
+    }
+
+    return count($finalOrderedIds);
+}
 
 public function insertbgcat()
 {
 	$data = array(
 		'name' => $_POST['cat_name'],
+		'sequence_number' => isset($_POST['sequence_number']) ? intval($_POST['sequence_number']) : 0,
 	);
 
 	$this->Db_function->insertdata('background_category','name',$data);
@@ -1683,6 +2004,133 @@ public function download() {
 	public function delete_hero($id) {
 		$this->db->where('id', $id)->delete('hero_banners');
 		redirect('site/hero_banners');
+	}
+
+	private function _require_admin_session($is_json = false) {
+		if (!$this->session->userdata('poster_sess_user_name')) {
+			if ($is_json) {
+				$this->output->set_status_header(401);
+				echo json_encode(array('status' => 'error', 'message' => 'Unauthorized'));
+				exit;
+			}
+			redirect('admin');
+			exit;
+		}
+	}
+
+	public function home_categories() {
+		$this->_require_admin_session();
+		$this->load->model('Home_category_model');
+
+		$app_id = $this->input->get('app_id') ? (int)$this->input->get('app_id') : 2;
+		$result = $this->Home_category_model->get_by_app($app_id);
+		$categories = $this->db->order_by('CAST(sequence_number AS UNSIGNED)', 'ASC')->get('category')->result_array();
+		$bg_categories = $this->db->order_by('CAST(sequence_number AS UNSIGNED)', 'ASC')->get('background_category')->result_array();
+		$action_types = Home_category_model::get_action_types();
+
+		$this->load->view('header');
+		$this->load->view('sidebar');
+		$this->load->view('home_categories', array(
+			'data' => $result,
+			'categories' => $categories,
+			'bg_categories' => $bg_categories,
+			'action_types' => $action_types,
+			'app_id' => $app_id
+		));
+		$this->load->view('footer');
+	}
+
+	public function insert_home_category() {
+		$this->_require_admin_session();
+		$this->load->model('Home_category_model');
+
+		$app_id = $this->input->post('app_id') ? (int)$this->input->post('app_id') : 2;
+		$payload = $this->Home_category_model->build_payload_from_post($_POST, false);
+		if ($payload['name'] !== '') {
+			$this->Home_category_model->insert_item($payload);
+			$this->session->set_flashdata('hc_success', 'Home Category added successfully.');
+		} else {
+			$this->session->set_flashdata('hc_error', 'Category name is required.');
+		}
+		redirect('site/home_categories?app_id=' . $app_id);
+	}
+
+	public function update_home_category() {
+		$this->_require_admin_session();
+		$this->load->model('Home_category_model');
+
+		$id = (int)$this->input->post('id');
+		$app_id = $this->input->post('app_id') ? (int)$this->input->post('app_id') : 2;
+		if ($id > 0) {
+			$payload = $this->Home_category_model->build_payload_from_post($_POST, true);
+			if ($payload['name'] !== '') {
+				$this->Home_category_model->update_item($id, $payload);
+				$this->session->set_flashdata('hc_success', 'Home Category updated successfully.');
+			} else {
+				$this->session->set_flashdata('hc_error', 'Category name is required.');
+			}
+		}
+		redirect('site/home_categories?app_id=' . $app_id);
+	}
+
+	public function home_category_sorting() {
+		$this->_require_admin_session(true);
+		$this->load->model('Home_category_model');
+
+		header('Content-Type: application/json');
+		if (isset($_POST['position']) && is_array($_POST['position'])) {
+			$this->Home_category_model->update_sort_order($_POST['position']);
+			echo json_encode(array('status' => 'success'));
+			return;
+		}
+		echo json_encode(array('status' => 'error', 'message' => 'Invalid positions payload'));
+	}
+
+	public function toggle_home_category($id = null) {
+		$is_ajax = $this->input->is_ajax_request();
+		$this->_require_admin_session($is_ajax);
+		$this->load->model('Home_category_model');
+
+		$target_id = $id !== null ? (int)$id : (int)$this->input->post('id');
+		$next = $this->Home_category_model->toggle_active($target_id);
+
+		if ($is_ajax) {
+			header('Content-Type: application/json');
+			if ($next === null) {
+				echo json_encode(array('status' => 'error', 'message' => 'Category not found'));
+			} else {
+				echo json_encode(array('status' => 'success', 'is_active' => $next));
+			}
+			return;
+		}
+
+		$app_id = $this->input->get('app_id') ? (int)$this->input->get('app_id') : 2;
+		redirect('site/home_categories?app_id=' . $app_id);
+	}
+
+	public function delete_home_category($id) {
+		$this->_require_admin_session();
+		$this->load->model('Home_category_model');
+
+		$app_id = $this->input->get('app_id') ? (int)$this->input->get('app_id') : 2;
+		$this->Home_category_model->delete_item((int)$id);
+		$this->session->set_flashdata('hc_success', 'Home Category deleted.');
+		redirect('site/home_categories?app_id=' . $app_id);
+	}
+
+	public function seed_home_categories() {
+		$this->_require_admin_session();
+		$this->load->model('Home_category_model');
+
+		$app_id = $this->input->get('app_id') ? (int)$this->input->get('app_id') : 2;
+		$this->Home_category_model->ensure_table_and_seed();
+		$seeded = $this->Home_category_model->seed_defaults($app_id);
+		if ($seeded) {
+			$this->session->set_flashdata('hc_success', 'Default Home Categories seeded for App ' . $app_id . '.');
+		} else {
+			$this->session->set_flashdata('hc_error', 'App ' . $app_id . ' already has Home Categories.');
+		}
+		redirect('site/home_categories?app_id=' . $app_id);
 	}
 
 }

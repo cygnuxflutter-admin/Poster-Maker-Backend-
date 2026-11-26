@@ -230,7 +230,7 @@ class Poster extends CI_Controller
 				/*if(isset($_POST['cat_id']) && !empty($_POST['cat_id']))
 				{*/
 
-					$result = $this->db->get('background_category')->result_array();
+					$result = $this->db->order_by("CAST(sequence_number AS UNSIGNED)", "ASC")->get('background_category')->result_array();
 					$rows = array();
 
 					foreach ($result as $rwData)
@@ -494,6 +494,52 @@ class Poster extends CI_Controller
 			} else {
 				$response['error'] = '404';
 				$response['message'] = 'Device Parameter missing';
+			}
+			echo json_encode($response);
+		}
+
+		public function home_categories() {
+			if (isset($_POST['device']) && !empty($_POST['device']) && $_POST['device'] == '1') {
+				$keyRow = $this->db->select('android_key')->where('key_id', '1')->get('tbl_key')->row();
+				$key = $keyRow ? $keyRow->android_key : '';
+				if (isset($_POST['key']) && $_POST['key'] === $key && $key !== '') {
+					$this->load->model('Home_category_model');
+					$app_id = isset($_POST['app_id']) && !empty($_POST['app_id']) ? (int)$_POST['app_id'] : 2;
+					$result = $this->Home_category_model->get_active_for_api($app_id);
+
+					$rows = array();
+					foreach ($result as $rwData) {
+						$rows[] = array(
+							'id' => (int)$rwData['id'],
+							'name' => $rwData['name'],
+							'icon_url' => Home_category_model::resolve_icon_url($rwData['icon_url']),
+							'bg_color' => isset($rwData['bg_color']) && $rwData['bg_color'] !== null ? $rwData['bg_color'] : '',
+							'border_color' => isset($rwData['border_color']) && $rwData['border_color'] !== null ? $rwData['border_color'] : '',
+							'action_type' => $rwData['action_type'],
+							'cat_id' => isset($rwData['cat_id']) && $rwData['cat_id'] !== null ? (string)$rwData['cat_id'] : '',
+							'cat_name' => isset($rwData['cat_name']) && $rwData['cat_name'] !== null ? $rwData['cat_name'] : '',
+							'action_url' => isset($rwData['action_url']) && $rwData['action_url'] !== null ? $rwData['action_url'] : '',
+							'sort_order' => (int)$rwData['sort_order'],
+							'is_active' => (int)$rwData['is_active']
+						);
+					}
+
+					$response = array(
+						'status' => 1,
+						'message' => 'Success',
+						'data' => $rows
+					);
+				} else {
+					$response = array(
+						'status' => 0,
+						'message' => 'Loading Failed(key is not passed)!'
+					);
+				}
+			} else {
+				$response = array(
+					'status' => 404,
+					'message' => 'Device Parameter missing'
+				);
 			}
 			echo json_encode($response);
 		}
